@@ -100,7 +100,7 @@ LagrangianHydroOperator::LagrangianHydroOperator(int size,
      quad_data(dim, nzones, integ_rule.GetNPoints()),
      quad_data_is_current(false),
      Force(&l2_fes, &h1_fes), ForcePA(&quad_data, h1_fes, l2_fes),
-     VMassPA(&quad_data, H1FESpace), locEMassPA(&quad_data, l2_fes),
+     VMassOper(), locEMassPA(&quad_data, l2_fes),
      locCG(), timer()
 {
    GridFunctionCoefficient rho_coeff(&rho0);
@@ -118,9 +118,16 @@ LagrangianHydroOperator::LagrangianHydroOperator(int size,
    }
 
    // Standard assembly for the velocity mass matrix.
-   VectorMassIntegrator *vmi = new VectorMassIntegrator(rho_coeff, &integ_rule);
-   Mv.AddDomainIntegrator(vmi);
-   Mv.Assemble();
+   Mv.AddIntegrator(new PAVMassIntegrator(&quad_data));
+   if (p_assembly)
+   {
+      Mv.AssembleForm(VMassOper);
+   }
+   else
+   {
+      // should be a HypreParMatrix
+      Mv.Assemble();
+   }
 
    // Values of rho0DetJ0 and Jac0inv at all quadrature points.
    const int nqp = integ_rule.GetNPoints();
@@ -241,10 +248,10 @@ void LagrangianHydroOperator::Mult(const Vector &S, Vector &dS_dt) const
       timer.dof_tstep += H1FESpace.GlobalTrueVSize();
       rhs.Neg();
 
-      Operator *cVMassPA;
-      VMassPA.FormLinearSystem(ess_tdofs, dv, rhs, cVMassPA, X, B);
+      Operator *cVMassOper;
+      Mv.FormLinearSystem(ess_tdofs, dv, rhs, cVMassOper, X, B);
       CGSolver cg(H1FESpace.GetParMesh()->GetComm());
-      cg.SetOperator(*cVMassPA);
+      cg.SetOperator(*cVMassOper);
       cg.SetRelTol(cg_rel_tol); cg.SetAbsTol(0.0);
       cg.SetMaxIter(cg_max_iter);
       cg.SetPrintLevel(0);
@@ -253,8 +260,8 @@ void LagrangianHydroOperator::Mult(const Vector &S, Vector &dS_dt) const
       timer.sw_cgH1.Stop();
       timer.H1dof_iter += cg.GetNumIterations() *
                           H1FESpace.GlobalTrueVSize();
-      VMassPA.RecoverFEMSolution(X, rhs, dv);
-      delete cVMassPA;
+      Mv.RecoverFEMSolution(X, rhs, dv);
+      delete cVMassOper;
    }
    else
    {

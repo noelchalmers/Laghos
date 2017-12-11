@@ -810,9 +810,10 @@ void ForcePAOperator::MultTransposeHex(const Vector &vecH1, Vector &vecL2) const
    }
 }
 
-void MassPAOperator::Mult(const Vector &x, Vector &y) const
+void PAVMassIntegrator::AddMult(const Vector &x, Vector &y)
 {
-   const int comp_size = FESpace.GetNDofs();
+   const int dim = fes->GetMesh()->Dimension();
+   const int comp_size = x.Size() / dim;
    for (int c = 0; c < dim; c++)
    {
       Vector x_comp(x.GetData() + c * comp_size, comp_size),
@@ -823,35 +824,20 @@ void MassPAOperator::Mult(const Vector &x, Vector &y) const
    }
 }
 
-// Mass matrix action on quadrilateral elements in 2D
-void MassPAOperator::MultQuad(const Vector &x, Vector &y) const
+void PAVMassIntegrator::MultQuad(const Vector &x, Vector &y)
 {
-   const H1_QuadrilateralElement *fe_H1 =
-      dynamic_cast<const H1_QuadrilateralElement *>(FESpace.GetFE(0));
    const DenseMatrix &HQs = tensors1D->HQshape1D;
-
+   const int nzones = fes->GetMesh()->GetNE();
    const int ndof1D = HQs.Height(), nqp1D = HQs.Width();
    DenseMatrix HQ(ndof1D, nqp1D), QQ(nqp1D, nqp1D);
-   Vector xz(ndof1D * ndof1D), yz(ndof1D * ndof1D);
-   DenseMatrix X(xz.GetData(), ndof1D, ndof1D),
-               Y(yz.GetData(), ndof1D, ndof1D);
-   Array<int> dofs;
    double *qq = QQ.GetData();
    const int nqp = nqp1D * nqp1D;
 
-   y.SetSize(x.Size());
-   y = 0.0;
-
+   int offset = 0;
    for (int z = 0; z < nzones; z++)
    {
-      FESpace.GetElementDofs(z, dofs);
-      // Transfer from the mfem's H1 local numbering to the tensor structure
-      // numbering.
-      const Array<int> &dof_map = fe_H1->GetDofMap();
-      for (int j = 0; j < xz.Size(); j++)
-      {
-         xz[j] = x[dofs[dof_map[j]]];
-      }
+      DenseMatrix X(x.GetData() + offset, ndof1D, ndof1D);
+      DenseMatrix Y(y.GetData() + offset, ndof1D, ndof1D);
 
       // HQ_i1_k2 = X_i1_i2 HQs_i2_k2  -- contract in y direction.
       // QQ_k1_k2 = HQs_i1_k1 HQ_i1_k2 -- contract in x direction.
@@ -865,47 +851,29 @@ void MassPAOperator::MultQuad(const Vector &x, Vector &y) const
       // HQ_i1_k2 = HQs_i1_k1 QQ_k1_k2 -- contract in x direction.
       // Y_i1_i2  = HQ_i1_k2 HQs_i2_k2 -- contract in y direction.
       mfem::Mult(HQs, QQ, HQ);
-      MultABt(HQ, HQs, Y);
+      AddMultABt(HQ, HQs, Y);
 
-      for (int j = 0; j < yz.Size(); j++)
-      {
-         y[dofs[dof_map[j]]] += yz[j];
-      }
+      offset += ndof1D*ndof1D;
    }
 }
 
-// Mass matrix action on hexahedral elements in 3D.
-void MassPAOperator::MultHex(const Vector &x, Vector &y) const
+void PAVMassIntegrator::MultHex(const Vector &x, Vector &y)
 {
-   const H1_HexahedronElement *fe_H1 =
-      dynamic_cast<const H1_HexahedronElement *>(FESpace.GetFE(0));
    const DenseMatrix &HQs = tensors1D->HQshape1D;
-
+   const int nzones = fes->GetMesh()->GetNE();
    const int ndof1D = HQs.Height(), nqp1D = HQs.Width();
    DenseMatrix HH_Q(ndof1D * ndof1D, nqp1D);
    DenseMatrix H_HQ(HH_Q.GetData(), ndof1D, ndof1D*nqp1D);
    DenseMatrix Q_HQ(nqp1D, ndof1D*nqp1D);
    DenseMatrix QQ_Q(nqp1D*nqp1D, nqp1D);
    double *qqq = QQ_Q.GetData();
-   Vector xz(ndof1D * ndof1D * ndof1D), yz(ndof1D * ndof1D * ndof1D);
-   DenseMatrix X(xz.GetData(), ndof1D*ndof1D, ndof1D),
-               Y(yz.GetData(), ndof1D*ndof1D, ndof1D);
    const int nqp = nqp1D * nqp1D * nqp1D;
-   Array<int> dofs;
 
-   y.SetSize(x.Size());
-   y = 0.0;
-
+   int offset = 0;
    for (int z = 0; z < nzones; z++)
    {
-      FESpace.GetElementDofs(z, dofs);
-      // Transfer from the mfem's H1 local numbering to the tensor structure
-      // numbering.
-      const Array<int> &dof_map = fe_H1->GetDofMap();
-      for (int j = 0; j < xz.Size(); j++)
-      {
-         xz[j] = x[dofs[dof_map[j]]];
-      }
+      DenseMatrix X(x.GetData() + offset, ndof1D*ndof1D, ndof1D);
+      DenseMatrix Y(y.GetData() + offset, ndof1D*ndof1D, ndof1D);
 
       // HHQ_i1_i2_k3  = X_i1_i2_i3 HQs_i3_k3   -- contract in z direction.
       // QHQ_k1_i2_k3  = HQs_i1_k1 HHQ_i1_i2_k3 -- contract in x direction.
@@ -953,12 +921,9 @@ void MassPAOperator::MultHex(const Vector &x, Vector &y) const
          }
       }
       mfem::Mult(HQs, Q_HQ, H_HQ);
-      MultABt(HH_Q, HQs, Y);
+      AddMultABt(HH_Q, HQs, Y);
 
-      for (int j = 0; j < yz.Size(); j++)
-      {
-         y[dofs[dof_map[j]]] += yz[j];
-      }
+      offset += ndof1D*ndof1D*ndof1D;
    }
 }
 

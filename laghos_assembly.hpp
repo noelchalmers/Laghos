@@ -158,34 +158,25 @@ public:
    ~ForcePAOperator() { }
 };
 
-// Performs partial assembly for the velocity mass matrix.
-class MassPAOperator : public Operator
+class PAVMassIntegrator : public LinearFESpaceIntegrator
 {
 private:
-   const int dim, nzones;
-
+   ParFiniteElementSpace *fes;
    QuadratureData *quad_data;
-   ParFiniteElementSpace &FESpace;
 
-   // Mass matrix action on quadrilateral elements in 2D.
-   void MultQuad(const Vector &x, Vector &y) const;
-   // Mass matrix action on hexahedral elements in 3D.
-   void MultHex(const Vector &x, Vector &y) const;
+   void MultQuad(const Vector &x, Vector &y);
+   void MultHex(const Vector &x, Vector &y);
 
 public:
-   MassPAOperator(QuadratureData *quad_data_, ParFiniteElementSpace &fes)
-      : Operator(fes.GetVSize()),
-        dim(fes.GetMesh()->Dimension()), nzones(fes.GetMesh()->GetNE()),
-        quad_data(quad_data_), FESpace(fes)
-   { }
+   PAVMassIntegrator(QuadratureData *_quad_data)
+      : fes(NULL), quad_data(_quad_data) { }
 
-   // Mass matrix action.
-   virtual void Mult(const Vector &x, Vector &y) const;
+   virtual void Assemble(FiniteElementSpace *trial_fes,
+                         FiniteElementSpace *test_fes)
+   { fes = static_cast<ParFiniteElementSpace*>(trial_fes); }
 
-   virtual const Operator *GetProlongation() const
-   { return FESpace.GetProlongationMatrix(); }
-   virtual const Operator *GetRestriction() const
-   { return FESpace.GetRestrictionMatrix(); }
+   /// Apply the action A * x = y.
+   virtual void AddMult(const Vector &x, Vector &y);
 };
 
 // Performs partial assembly for the energy mass matrix on a single zone.
