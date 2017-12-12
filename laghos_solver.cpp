@@ -100,7 +100,7 @@ LagrangianHydroOperator::LagrangianHydroOperator(int size,
      quad_data(dim, nzones, integ_rule.GetNPoints()),
      quad_data_is_current(false),
      Force(&l2_fes, &h1_fes), ForcePA(&quad_data, h1_fes, l2_fes),
-     VMassOper(), locEMassPA(&quad_data, l2_fes),
+     locEMassPA(&quad_data, l2_fes),
      locCG(), timer()
 {
    GridFunctionCoefficient rho_coeff(&rho0);
@@ -117,16 +117,16 @@ LagrangianHydroOperator::LagrangianHydroOperator(int size,
       inv.GetInverseMatrix(Me_inv(i));
    }
 
-   // Standard assembly for the velocity mass matrix.
-   Mv.AddIntegrator(new PAVMassIntegrator(&quad_data));
    if (p_assembly)
    {
-      Mv.AssembleForm(VMassOper);
+      Mv.AddIntegrator(new PAVMassIntegrator(&quad_data));
+      Mv.AssembleForm(BilinearForm::PARTIAL);
    }
    else
    {
       // should be a HypreParMatrix
-      Mv.Assemble();
+      Mv.AddDomainIntegrator(new VectorMassIntegrator(rho_coeff, &integ_rule));
+      Mv.Assemble(BilinearForm::FULL);
    }
 
    // Values of rho0DetJ0 and Jac0inv at all quadrature points.
@@ -240,51 +240,26 @@ void LagrangianHydroOperator::Mult(const Vector &S, Vector &dS_dt) const
 
    // Solve for velocity.
    Vector one(VsizeL2), rhs(VsizeH1), B, X; one = 1.0;
-   if (p_assembly)
-   {
-      timer.sw_force.Start();
-      ForcePA.Mult(one, rhs);
-      timer.sw_force.Stop();
-      timer.dof_tstep += H1FESpace.GlobalTrueVSize();
-      rhs.Neg();
+   timer.sw_force.Start();
+   ForcePA.Mult(one, rhs);
+   timer.sw_force.Stop();
+   timer.dof_tstep += H1FESpace.GlobalTrueVSize();
+   rhs.Neg();
 
-      Operator *cVMassOper;
-      Mv.FormLinearSystem(ess_tdofs, dv, rhs, cVMassOper, X, B);
-      CGSolver cg(H1FESpace.GetParMesh()->GetComm());
-      cg.SetOperator(*cVMassOper);
-      cg.SetRelTol(cg_rel_tol); cg.SetAbsTol(0.0);
-      cg.SetMaxIter(cg_max_iter);
-      cg.SetPrintLevel(0);
-      timer.sw_cgH1.Start();
-      cg.Mult(B, X);
-      timer.sw_cgH1.Stop();
-      timer.H1dof_iter += cg.GetNumIterations() *
-                          H1FESpace.GlobalTrueVSize();
-      Mv.RecoverFEMSolution(X, rhs, dv);
-      delete cVMassOper;
-   }
-   else
-   {
-      timer.sw_force.Start();
-      Force.Mult(one, rhs);
-      timer.sw_force.Stop();
-      timer.dof_tstep += H1FESpace.GlobalTrueVSize();
-      rhs.Neg();
-
-      HypreParMatrix A;
-      Mv.FormLinearSystem(ess_tdofs, dv, rhs, A, X, B);
-      CGSolver cg(H1FESpace.GetParMesh()->GetComm());
-      cg.SetOperator(A);
-      cg.SetRelTol(cg_rel_tol); cg.SetAbsTol(0.0);
-      cg.SetMaxIter(cg_max_iter);
-      cg.SetPrintLevel(0);
-      timer.sw_cgH1.Start();
-      cg.Mult(B, X);
-      timer.sw_cgH1.Stop();
-      timer.H1dof_iter += cg.GetNumIterations() *
-                          H1FESpace.GlobalTrueVSize();
-      Mv.RecoverFEMSolution(X, rhs, dv);
-   }
+   Operator *MassOper;
+   Mv.FormLinearSystem(ess_tdofs, dv, rhs, MassOper, X, B);
+   CGSolver cg(H1FESpace.GetParMesh()->GetComm());
+   cg.SetOperator(*MassOper);
+   cg.SetRelTol(cg_rel_tol); cg.SetAbsTol(0.0);
+   cg.SetMaxIter(cg_max_iter);
+   cg.SetPrintLevel(0);
+   timer.sw_cgH1.Start();
+   cg.Mult(B, X);
+   timer.sw_cgH1.Stop();
+   timer.H1dof_iter += cg.GetNumIterations() *
+      H1FESpace.GlobalTrueVSize();
+   Mv.RecoverFEMSolution(X, rhs, dv);
+   delete MassOper;
 
    // Solve for energy, assemble the energy source if such exists.
    LinearForm *e_source = NULL;

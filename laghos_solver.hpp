@@ -103,7 +103,6 @@ protected:
 
    // Mass matrices done through partial assembly:
    // velocity (coupled H1 assembly) and energy (local L2 assemblies).
-   mutable BilinearFormOperator VMassOper;
    mutable LocalMassPAOperator locEMassPA;
 
    // Linear solver for energy.
