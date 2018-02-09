@@ -87,13 +87,14 @@ LagrangianHydroOperator::LagrangianHydroOperator(int size,
    : TimeDependentOperator(size),
      H1FESpace(h1_fes), L2FESpace(l2_fes),
      ess_tdofs(essential_tdofs),
-     dim(h1_fes.GetMesh()->Dimension()),
      nzones(h1_fes.GetMesh()->GetNE()),
+     dim(h1_fes.GetMesh()->Dimension()),
      l2dofs_cnt(l2_fes.GetFE(0)->GetDof()),
      h1dofs_cnt(h1_fes.GetFE(0)->GetDof()),
      source_type(source_type_), cfl(cfl_),
      use_viscosity(visc), p_assembly(pa), cg_rel_tol(cgt), cg_max_iter(cgiter),
      material_pcf(material_),
+     rho_coeff(&rho0),
      Mv(&h1_fes), Me_inv(l2dofs_cnt, l2dofs_cnt, nzones),
      integ_rule(IntRules.Get(h1_fes.GetMesh()->GetElementBaseGeometry(),
                              3*h1_fes.GetOrder(0) + l2_fes.GetOrder(0) - 1)),
@@ -103,8 +104,6 @@ LagrangianHydroOperator::LagrangianHydroOperator(int size,
      VMassPA(&quad_data, H1FESpace), locEMassPA(&quad_data, l2_fes),
      locCG(), timer()
 {
-   GridFunctionCoefficient rho_coeff(&rho0);
-
    // Standard local assembly and inversion for energy mass matrices.
    DenseMatrix Me(l2dofs_cnt);
    DenseMatrixInverse inv(&Me);
@@ -225,7 +224,8 @@ void LagrangianHydroOperator::Mult(const Vector &S, Vector &dS_dt) const
 
    if (!p_assembly)
    {
-      Force = 0.0;
+      //Force = 0.0;
+      Force.Update();
       timer.sw_force.Start();
       Force.Assemble();
       timer.sw_force.Stop();
@@ -611,6 +611,37 @@ void LagrangianHydroOperator::UpdateQuadratureData(const Vector &S) const
 
    timer.sw_qdata.Stop();
    timer.quad_tstep += nzones;
+}
+
+void LagrangianHydroOperator::AMRUpdate(int size)
+{
+   width = height = size;
+   nzones = H1FESpace.GetMesh()->GetNE();
+
+   quad_data.Resize(dim, nzones, integ_rule.GetNPoints());
+   quad_data_is_current = false;
+
+   // update mass matrix: TODO: don't reassemble everything
+   Mv.Update();
+   Mv.Assemble();
+
+   // update Me_inv - TODO: do this better too
+   {
+      Me_inv.SetSize(l2dofs_cnt, l2dofs_cnt, nzones);
+
+      DenseMatrix Me(l2dofs_cnt);
+      DenseMatrixInverse inv(&Me);
+
+      MassIntegrator mi(rho_coeff, &integ_rule);
+
+      for (int i = 0; i < nzones; i++)
+      {
+         mi.AssembleElementMatrix(*L2FESpace.GetFE(i),
+                                  *L2FESpace.GetElementTransformation(i), Me);
+         inv.Factor();
+         inv.GetInverseMatrix(Me_inv(i));
+      }
+   }
 }
 
 } // namespace hydrodynamics

@@ -65,6 +65,13 @@ int problem;
 
 void display_banner(ostream & os);
 
+void AMRUpdate(BlockVector &S, BlockVector &S_tmp,
+               Array<int> &true_offset,
+               ParGridFunction &x_gf,
+               ParGridFunction &v_gf,
+               ParGridFunction &e_gf);
+
+
 int main(int argc, char *argv[])
 {
    // Initialize MPI.
@@ -93,6 +100,7 @@ int main(int argc, char *argv[])
    bool gfprint = false;
    const char *basename = "results/Laghos";
    int partition_type = 111;
+   bool amr = false;
 
    OptionsParser args(argc, argv);
    args.AddOption(&mesh_file, "-m", "--mesh",
@@ -121,6 +129,8 @@ int main(int argc, char *argv[])
    args.AddOption(&p_assembly, "-pa", "--partial-assembly", "-fa",
                   "--full-assembly",
                   "Activate 1D tensor-based assembly (partial assembly).");
+   args.AddOption(&amr, "-amr", "--enable-amr", "-no-amr", "--disable-amr",
+                  "Experimental adaptive mesh refinement (problem 1 only).");
    args.AddOption(&visualization, "-vis", "--visualization", "-no-vis",
                   "--no-visualization",
                   "Enable or disable GLVis visualization.");
@@ -149,11 +159,29 @@ int main(int argc, char *argv[])
    }
    if (mpi.Root()) { args.PrintOptions(cout); }
 
+   if (amr && problem != 1)
+   {
+      cout << "AMR only supported for problem 1." << endl;
+      return 0;
+   }
+
    // Read the serial mesh from the given mesh file on all processors.
    // Refine the mesh in serial to increase the resolution.
    Mesh *mesh = new Mesh(mesh_file, 1, 1);
    const int dim = mesh->Dimension();
-   for (int lev = 0; lev < rs_levels; lev++) { mesh->UniformRefinement(); }
+   mesh->EnsureNCMesh();
+   for (int lev = 0; lev < rs_levels; lev++)
+   {
+      mesh->UniformRefinement();
+/*      if (!amr)
+      {
+         mesh->UniformRefinement();
+      }
+      else
+      {
+         mesh->RefineAtVertex(Vertex(0, 0, 0));
+      }*/
+   }
 
    if (p_assembly && dim == 1)
    {
@@ -402,17 +430,17 @@ int main(int argc, char *argv[])
       vis_e.precision(8);
 
       int Wx = 0, Wy = 0; // window position
-      const int Ww = 350, Wh = 350; // window size
+      const int Ww = 500, Wh = 500; // window size
       int offx = Ww+10; // window offsets
 
       VisualizeField(vis_rho, vishost, visport, rho_gf,
                      "Density", Wx, Wy, Ww, Wh);
       Wx += offx;
-      VisualizeField(vis_v, vishost, visport, v_gf,
+      /*VisualizeField(vis_v, vishost, visport, v_gf,
                      "Velocity", Wx, Wy, Ww, Wh);
       Wx += offx;
       VisualizeField(vis_e, vishost, visport, e_gf,
-                     "Specific Internal Energy", Wx, Wy, Ww, Wh);
+                     "Specific Internal Energy", Wx, Wy, Ww, Wh);*/
    }
 
    // Save data for VisIt visualization.
@@ -497,18 +525,18 @@ int main(int argc, char *argv[])
          if (visualization)
          {
             int Wx = 0, Wy = 0; // window position
-            int Ww = 350, Wh = 350; // window size
+            int Ww = 500, Wh = 500; // window size
             int offx = Ww+10; // window offsets
 
             VisualizeField(vis_rho, vishost, visport, rho_gf,
                            "Density", Wx, Wy, Ww, Wh);
             Wx += offx;
-            VisualizeField(vis_v, vishost, visport,
+            /*VisualizeField(vis_v, vishost, visport,
                            v_gf, "Velocity", Wx, Wy, Ww, Wh);
             Wx += offx;
             VisualizeField(vis_e, vishost, visport, e_gf,
                            "Specific Internal Energy", Wx, Wy, Ww,Wh);
-            Wx += offx;
+            Wx += offx;*/
          }
 
          if (visit)
@@ -551,6 +579,19 @@ int main(int argc, char *argv[])
             e_ofs.close();
          }
       }
+
+      if (amr)
+      {
+         if (ti == 20)
+         {
+            Array<int> refs;
+            refs.Append(rand() % pmesh->GetNE());
+            pmesh->GeneralRefinement(refs);
+
+            AMRUpdate(S, S_old, true_offset, x_gf, v_gf, e_gf);
+            oper.AMRUpdate(S.Size());
+         }
+      }
    }
 
    switch (ode_solver_type)
@@ -575,6 +616,43 @@ int main(int argc, char *argv[])
 
    return 0;
 }
+
+
+void AMRUpdate(BlockVector &S, BlockVector &S_tmp,
+               Array<int> &true_offset,
+               ParGridFunction &x_gf,
+               ParGridFunction &v_gf,
+               ParGridFunction &e_gf)
+{
+   ParFiniteElementSpace* H1FESpace = x_gf.ParFESpace();
+   ParFiniteElementSpace* L2FESpace = e_gf.ParFESpace();
+
+   H1FESpace->Update();
+   L2FESpace->Update();
+
+   int Vsize_h1 = H1FESpace->GetVSize();
+   int Vsize_l2 = L2FESpace->GetVSize();
+
+   true_offset[0] = 0;
+   true_offset[1] = true_offset[0] + Vsize_h1;
+   true_offset[2] = true_offset[1] + Vsize_h1;
+   true_offset[3] = true_offset[2] + Vsize_l2;
+
+   S_tmp = S;
+   S.Update(true_offset);
+
+   const Operator* H1Update = H1FESpace->GetUpdateOperator();
+   const Operator* L2Update = L2FESpace->GetUpdateOperator();
+
+   H1Update->Mult(S_tmp.GetBlock(0), S.GetBlock(0));
+   H1Update->Mult(S_tmp.GetBlock(1), S.GetBlock(1));
+   L2Update->Mult(S_tmp.GetBlock(2), S.GetBlock(2));
+
+   x_gf.MakeRef(H1FESpace, S, true_offset[0]);
+   v_gf.MakeRef(H1FESpace, S, true_offset[1]);
+   e_gf.MakeRef(L2FESpace, S, true_offset[2]);
+}
+
 
 namespace mfem
 {
@@ -649,7 +727,7 @@ double e0(const Vector &x)
          }
          return val/denom;
       }
-      case 1: return 0.0; // This case in initialized in main().
+      case 1: return 0.0; // This case is initialized in main().
       case 2: if (x(0) < 0.5) { return 1.0 / rho0(x) / (gamma(x) - 1.0); }
          else { return 0.1 / rho0(x) / (gamma(x) - 1.0); }
       case 3: if (x(0) > 1.0) { return 0.1 / rho0(x) / (gamma(x) - 1.0); }
