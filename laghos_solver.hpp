@@ -79,7 +79,9 @@ protected:
    const double cg_rel_tol;
    const int cg_max_iter;
    Coefficient *material_pcf;
-   GridFunctionCoefficient rho_coeff;
+
+   const ParGridFunction &rho0;
+   GridFunctionCoefficient rho_coeff; // TODO: remove when Mv update improved
 
    // Velocity mass matrix and local inverses of the energy mass matrices. These
    // are constant in time, due to the pointwise mass conservation property.

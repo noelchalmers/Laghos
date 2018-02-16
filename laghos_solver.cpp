@@ -94,6 +94,7 @@ LagrangianHydroOperator::LagrangianHydroOperator(int size,
      source_type(source_type_), cfl(cfl_),
      use_viscosity(visc), p_assembly(pa), cg_rel_tol(cgt), cg_max_iter(cgiter),
      material_pcf(material_),
+     rho0(rho0),
      rho_coeff(&rho0),
      Mv(&h1_fes), Me_inv(l2dofs_cnt, l2dofs_cnt, nzones),
      integ_rule(IntRules.Get(h1_fes.GetMesh()->GetElementBaseGeometry(),
@@ -640,6 +641,28 @@ void LagrangianHydroOperator::AMRUpdate(int size)
                                   *L2FESpace.GetElementTransformation(i), Me);
          inv.Factor();
          inv.GetInverseMatrix(Me_inv(i));
+      }
+   }
+
+   // FIXME: remove code duplication
+   // Values of rho0DetJ0 and Jac0inv at all quadrature points.
+   const int nqp = integ_rule.GetNPoints();
+   Vector rho_vals(nqp);
+   for (int i = 0; i < nzones; i++)
+   {
+      rho0.GetValues(i, integ_rule, rho_vals);
+      ElementTransformation *T = H1FESpace.GetElementTransformation(i);
+      for (int q = 0; q < nqp; q++)
+      {
+         const IntegrationPoint &ip = integ_rule.IntPoint(q);
+         T->SetIntPoint(&ip);
+
+         DenseMatrixInverse Jinv(T->Jacobian());
+         Jinv.GetInverseMatrix(quad_data.Jac0inv(i*nqp + q));
+
+         const double rho0DetJ0 = T->Weight() * rho_vals(q);
+         quad_data.rho0DetJ0w(i*nqp + q) = rho0DetJ0 *
+                                           integ_rule.IntPoint(q).weight;
       }
    }
 }

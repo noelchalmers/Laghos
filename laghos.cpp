@@ -195,7 +195,7 @@ int main(int argc, char *argv[])
    // Parallel partitioning of the mesh.
    ParMesh *pmesh = NULL;
    const int num_tasks = mpi.WorldSize(); int unit;
-   int *nxyz = new int[dim];
+   int *nxyz = new int[3];
    switch (partition_type)
    {
       case 11:
@@ -373,25 +373,29 @@ int main(int argc, char *argv[])
    // is to get a high-order representation of the initial condition. Note that
    // this density is a temporary function and it will not be updated during the
    // time evolution.
-   ParGridFunction rho(&L2FESpace);
-   FunctionCoefficient rho_coeff(hydrodynamics::rho0);
-   L2_FECollection l2_fec(order_e, pmesh->Dimension());
-   ParFiniteElementSpace l2_fes(pmesh, &l2_fec);
-   ParGridFunction l2_rho(&l2_fes), l2_e(&l2_fes);
-   l2_rho.ProjectCoefficient(rho_coeff);
-   rho.ProjectGridFunction(l2_rho);
-   if (problem == 1)
+   ParGridFunction rho0_gf(&L2FESpace);
    {
-      // For the Sedov test, we use a delta function at the origin.
-      DeltaCoefficient e_coeff(0, 0, 0.25);
-      l2_e.ProjectCoefficient(e_coeff);
+      FunctionCoefficient rho_coeff(hydrodynamics::rho0);
+      L2_FECollection l2_fec(order_e, pmesh->Dimension());
+      ParFiniteElementSpace l2_fes(pmesh, &l2_fec);
+
+      ParGridFunction l2_rho(&l2_fes), l2_e(&l2_fes);
+      l2_rho.ProjectCoefficient(rho_coeff);
+      rho0_gf.ProjectGridFunction(l2_rho);
+
+      if (problem == 1)
+      {
+         // For the Sedov test, we use a delta function at the origin.
+         DeltaCoefficient e_coeff(0, 0, 0.25);
+         l2_e.ProjectCoefficient(e_coeff);
+      }
+      else
+      {
+         FunctionCoefficient e_coeff(e0);
+         l2_e.ProjectCoefficient(e_coeff);
+      }
+      e_gf.ProjectGridFunction(l2_e);
    }
-   else
-   {
-      FunctionCoefficient e_coeff(e0);
-      l2_e.ProjectCoefficient(e_coeff);
-   }
-   e_gf.ProjectGridFunction(l2_e);
 
    // Space-dependent ideal gas coefficient over the Lagrangian mesh.
    Coefficient *material_pcf = new FunctionCoefficient(hydrodynamics::gamma);
@@ -409,7 +413,7 @@ int main(int argc, char *argv[])
    }
 
    LagrangianHydroOperator oper(S.Size(), H1FESpace, L2FESpace,
-                                ess_tdofs, rho, source, cfl, material_pcf,
+                                ess_tdofs, rho0_gf, source, cfl, material_pcf,
                                 visc, p_assembly, cg_tol, cg_max_iter);
 
    socketstream vis_rho, vis_v, vis_e;
@@ -436,11 +440,11 @@ int main(int argc, char *argv[])
       VisualizeField(vis_rho, vishost, visport, rho_gf,
                      "Density", Wx, Wy, Ww, Wh);
       Wx += offx;
-      /*VisualizeField(vis_v, vishost, visport, v_gf,
+      VisualizeField(vis_v, vishost, visport, v_gf,
                      "Velocity", Wx, Wy, Ww, Wh);
       Wx += offx;
       VisualizeField(vis_e, vishost, visport, e_gf,
-                     "Specific Internal Energy", Wx, Wy, Ww, Wh);*/
+                     "Specific Internal Energy", Wx, Wy, Ww, Wh);
    }
 
    // Save data for VisIt visualization.
@@ -531,12 +535,12 @@ int main(int argc, char *argv[])
             VisualizeField(vis_rho, vishost, visport, rho_gf,
                            "Density", Wx, Wy, Ww, Wh);
             Wx += offx;
-            /*VisualizeField(vis_v, vishost, visport,
+            VisualizeField(vis_v, vishost, visport,
                            v_gf, "Velocity", Wx, Wy, Ww, Wh);
             Wx += offx;
             VisualizeField(vis_e, vishost, visport, e_gf,
                            "Specific Internal Energy", Wx, Wy, Ww,Wh);
-            Wx += offx;*/
+            Wx += offx;
          }
 
          if (visit)
@@ -589,6 +593,7 @@ int main(int argc, char *argv[])
             pmesh->GeneralRefinement(refs);
 
             AMRUpdate(S, S_old, true_offset, x_gf, v_gf, e_gf);
+            rho0_gf.Update();
             oper.AMRUpdate(S.Size());
          }
       }
@@ -651,6 +656,8 @@ void AMRUpdate(BlockVector &S, BlockVector &S_tmp,
    x_gf.MakeRef(H1FESpace, S, true_offset[0]);
    v_gf.MakeRef(H1FESpace, S, true_offset[1]);
    e_gf.MakeRef(L2FESpace, S, true_offset[2]);
+
+   S_tmp.Update(true_offset);
 }
 
 
