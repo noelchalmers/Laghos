@@ -71,6 +71,9 @@ void AMRUpdate(BlockVector &S, BlockVector &S_tmp,
                ParGridFunction &v_gf,
                ParGridFunction &e_gf);
 
+void GetZeroBCDofs(ParMesh *pmesh, ParFiniteElementSpace *pspace,
+                   Array<int> &ess_tdofs);
+
 
 int main(int argc, char *argv[])
 {
@@ -293,17 +296,7 @@ int main(int argc, char *argv[])
    // Boundary conditions: all tests use v.n = 0 on the boundary, and we assume
    // that the boundaries are straight.
    Array<int> ess_tdofs;
-   {
-      Array<int> ess_bdr(pmesh->bdr_attributes.Max()), tdofs1d;
-      for (int d = 0; d < pmesh->Dimension(); d++)
-      {
-         // Attributes 1/2/3 correspond to fixed-x/y/z boundaries, i.e., we must
-         // enforce v_x/y/z = 0 for the velocity components.
-         ess_bdr = 0; ess_bdr[d] = 1;
-         H1FESpace.GetEssentialTrueDofs(ess_bdr, tdofs1d, d);
-         ess_tdofs.Append(tdofs1d);
-      }
-   }
+   GetZeroBCDofs(pmesh, &H1FESpace, ess_tdofs);
 
    // Define the explicit ODE solver used for time integration.
    ODESolver *ode_solver = NULL;
@@ -595,6 +588,7 @@ int main(int argc, char *argv[])
             AMRUpdate(S, S_old, true_offset, x_gf, v_gf, e_gf);
             rho0_gf.Update();
             oper.AMRUpdate(S.Size());
+            GetZeroBCDofs(pmesh, &H1FESpace, ess_tdofs);
          }
       }
    }
@@ -622,6 +616,21 @@ int main(int argc, char *argv[])
    return 0;
 }
 
+
+void GetZeroBCDofs(ParMesh *pmesh, ParFiniteElementSpace *pspace,
+                   Array<int> &ess_tdofs)
+{
+   ess_tdofs.SetSize(0);
+   Array<int> ess_bdr(pmesh->bdr_attributes.Max()), tdofs1d;
+   for (int d = 0; d < pmesh->Dimension(); d++)
+   {
+      // Attributes 1/2/3 correspond to fixed-x/y/z boundaries, i.e., we must
+      // enforce v_x/y/z = 0 for the velocity components.
+      ess_bdr = 0; ess_bdr[d] = 1;
+      pspace->GetEssentialTrueDofs(ess_bdr, tdofs1d, d);
+      ess_tdofs.Append(tdofs1d);
+   }
+}
 
 void AMRUpdate(BlockVector &S, BlockVector &S_tmp,
                Array<int> &true_offset,
