@@ -72,6 +72,15 @@ struct QuadratureData
       stressJinvT.SetSize(nzones * quads_per_zone, dim, dim);
       rho0DetJ0w.SetSize(nzones * quads_per_zone);
    }
+
+   void DebugDump(std::ostream &os)
+   {
+      os << "Jac0inv = \n"; Jac0inv.DebugDump(os);
+      os << "stressJinvT = \n"; stressJinvT.DebugDump(os);
+      os << "rho0DetJ0w = \n"; rho0DetJ0w.Print(os);
+      os << "h0 = " << h0 << "\n";
+      os << "dt_est = " << dt_est << "\n";
+   }
 };
 
 // Stores values of the one-dimensional shape functions and gradients at all 1D

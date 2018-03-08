@@ -619,15 +619,15 @@ void LagrangianHydroOperator::AMRUpdate(int size)
    width = height = size;
    nzones = H1FESpace.GetMesh()->GetNE();
 
-   quad_data.Resize(dim, nzones, integ_rule.GetNPoints());
-   quad_data_is_current = false;
+   /*quad_data.Resize(dim, nzones, integ_rule.GetNPoints());
+   quad_data_is_current = false;*/
 
    // update mass matrix: TODO: don't reassemble everything
    Mv.Update();
    Mv.Assemble();
 
    // update Me_inv - TODO: do this better too
-   {
+   /*{
       Me_inv.SetSize(l2dofs_cnt, l2dofs_cnt, nzones);
 
       DenseMatrix Me(l2dofs_cnt);
@@ -642,11 +642,11 @@ void LagrangianHydroOperator::AMRUpdate(int size)
          inv.Factor();
          inv.GetInverseMatrix(Me_inv(i));
       }
-   }
+   }*/
 
    // FIXME: remove code duplication
    // Values of rho0DetJ0 and Jac0inv at all quadrature points.
-   const int nqp = integ_rule.GetNPoints();
+   /*const int nqp = integ_rule.GetNPoints();
    Vector rho_vals(nqp);
    for (int i = 0; i < nzones; i++)
    {
@@ -664,7 +664,17 @@ void LagrangianHydroOperator::AMRUpdate(int size)
          quad_data.rho0DetJ0w(i*nqp + q) = rho0DetJ0 *
                                            integ_rule.IntPoint(q).weight;
       }
-   }
+   }*/
+}
+
+void LagrangianHydroOperator::DebugDump(std::ostream &os)
+{
+   os << "width = " << width << "\n";
+   os << "height = " << height << "\n";
+   os << "nzones = " << nzones << "\n";
+
+   os << "\n*** quad_data ***\n"; quad_data.DebugDump(os);
+   os << "*** Me_inv ***\n"; Me_inv.DebugDump(os);
 }
 
 } // namespace hydrodynamics

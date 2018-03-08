@@ -149,6 +149,8 @@ public:
 
    void AMRUpdate(int size);
 
+   void DebugDump(std::ostream &os);
+
    void PrintTimingData(bool IamRoot, int steps);
 
    ~LagrangianHydroOperator();

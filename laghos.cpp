@@ -433,11 +433,11 @@ int main(int argc, char *argv[])
       VisualizeField(vis_rho, vishost, visport, rho_gf,
                      "Density", Wx, Wy, Ww, Wh);
       Wx += offx;
-      VisualizeField(vis_v, vishost, visport, v_gf,
+      /*VisualizeField(vis_v, vishost, visport, v_gf,
                      "Velocity", Wx, Wy, Ww, Wh);
       Wx += offx;
       VisualizeField(vis_e, vishost, visport, e_gf,
-                     "Specific Internal Energy", Wx, Wy, Ww, Wh);
+                     "Specific Internal Energy", Wx, Wy, Ww, Wh);*/
    }
 
    // Save data for VisIt visualization.
@@ -528,12 +528,12 @@ int main(int argc, char *argv[])
             VisualizeField(vis_rho, vishost, visport, rho_gf,
                            "Density", Wx, Wy, Ww, Wh);
             Wx += offx;
-            VisualizeField(vis_v, vishost, visport,
+            /*VisualizeField(vis_v, vishost, visport,
                            v_gf, "Velocity", Wx, Wy, Ww, Wh);
             Wx += offx;
             VisualizeField(vis_e, vishost, visport, e_gf,
                            "Specific Internal Energy", Wx, Wy, Ww,Wh);
-            Wx += offx;
+            Wx += offx;*/
          }
 
          if (visit)
@@ -582,14 +582,22 @@ int main(int argc, char *argv[])
          if (ti == 20)
          {
             Array<int> refs;
-            refs.Append(rand() % pmesh->GetNE());
-            pmesh->GeneralRefinement(refs);
+            //refs.Append(rand() % pmesh->GetNE());
+            //pmesh->GeneralRefinement(refs);
 
-            AMRUpdate(S, S_old, true_offset, x_gf, v_gf, e_gf);
-            rho0_gf.Update();
+            /*AMRUpdate(S, S_old, true_offset, x_gf, v_gf, e_gf);
+            rho0_gf.Update();*/
             oper.AMRUpdate(S.Size());
             GetZeroBCDofs(pmesh, &H1FESpace, ess_tdofs);
          }
+      }
+
+      if (ti == 20)
+      {
+         std::ofstream f(amr ? "laghos-dump-amr.txt" : "laghos-dump.txt");
+         oper.DebugDump(f);
+         f << "ess_tdofs:\n"; ess_tdofs.Print(f);
+         f << "rho0_gf:\n"; rho0_gf.Print(f);
       }
    }
 
