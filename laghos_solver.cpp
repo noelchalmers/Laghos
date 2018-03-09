@@ -632,24 +632,17 @@ void LagrangianHydroOperator::AMRUpdate(const Vector &S)
    GridFunction *x_gf = &x0_gf;
    pmesh->SwapNodes(x_gf, own_nodes);
 
-   // update quadrature data
-   /*quad_data.Resize(dim, nzones, integ_rule.GetNPoints());
-   quad_data_is_current = false;
-   UpdateQuadratureData(S);*/
-
    // update mass matrix: TODO: don't reassemble everything
    Mv.Update();
    Mv.Assemble();
 
    // update Me_inv - TODO: do this better too
-   /*{
+   {
       Me_inv.SetSize(l2dofs_cnt, l2dofs_cnt, nzones);
 
       DenseMatrix Me(l2dofs_cnt);
       DenseMatrixInverse inv(&Me);
-
-      MassIntegrator mi(rho_coeff, &integ_rule);
-
+      MassIntegrator mi(rho0_coeff, &integ_rule);
       for (int i = 0; i < nzones; i++)
       {
          mi.AssembleElementMatrix(*L2FESpace.GetFE(i),
@@ -657,11 +650,15 @@ void LagrangianHydroOperator::AMRUpdate(const Vector &S)
          inv.Factor();
          inv.GetInverseMatrix(Me_inv(i));
       }
-   }*/
+   }
+
+   // resize quadrature data and make sure 'stressJinvT' will be recomputed
+   quad_data.Resize(dim, nzones, integ_rule.GetNPoints());
+   quad_data_is_current = false;
 
    // FIXME: remove code duplication
-   // Values of rho0DetJ0 and Jac0inv at all quadrature points.
-   /*const int nqp = integ_rule.GetNPoints();
+   // Update 'rho0DetJ0' and 'Jac0inv' at all quadrature points.
+   const int nqp = integ_rule.GetNPoints();
    Vector rho_vals(nqp);
    for (int i = 0; i < nzones; i++)
    {
@@ -679,7 +676,7 @@ void LagrangianHydroOperator::AMRUpdate(const Vector &S)
          quad_data.rho0DetJ0w(i*nqp + q) = rho0DetJ0 *
                                            integ_rule.IntPoint(q).weight;
       }
-   }*/
+   }
 
    // swap back to deformed mesh configuration
    pmesh->SwapNodes(x_gf, own_nodes);

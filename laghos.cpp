@@ -579,12 +579,18 @@ int main(int argc, char *argv[])
 
       if (amr)
       {
-         if (ti == 20)
+         if (ti % 100 == 0)
          {
+            // refine one random element
             Array<int> refs;
-            //refs.Append(rand() % pmesh->GetNE());
-            pmesh->GeneralRefinement(refs);
+            int r = rand(), e = rand();
+            if (r % num_tasks == myid)
+            {
+               refs.Append(e % pmesh->GetNE());
+            }
+            pmesh->GeneralRefinement(refs, 1, 1);
 
+            // update the state and the hydro operator
             AMRUpdate(S, S_old, true_offset, x_gf, v_gf, e_gf);
             rho0_gf.Update();
             oper.AMRUpdate(S);
@@ -592,13 +598,13 @@ int main(int argc, char *argv[])
          }
       }
 
-      if (ti == 20)
+      /*if (ti == 20 && myid == 0)
       {
          std::ofstream f(amr ? "laghos-dump-amr.txt" : "laghos-dump.txt");
          oper.DebugDump(f);
          f << "ess_tdofs:\n"; ess_tdofs.Print(f);
          f << "rho0_gf:\n"; rho0_gf.Print(f);
-      }
+      }*/
    }
 
    switch (ode_solver_type)
