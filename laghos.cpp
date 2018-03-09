@@ -583,11 +583,11 @@ int main(int argc, char *argv[])
          {
             Array<int> refs;
             //refs.Append(rand() % pmesh->GetNE());
-            //pmesh->GeneralRefinement(refs);
+            pmesh->GeneralRefinement(refs);
 
-            /*AMRUpdate(S, S_old, true_offset, x_gf, v_gf, e_gf);
-            rho0_gf.Update();*/
-            oper.AMRUpdate(S.Size());
+            AMRUpdate(S, S_old, true_offset, x_gf, v_gf, e_gf);
+            rho0_gf.Update();
+            oper.AMRUpdate(S);
             GetZeroBCDofs(pmesh, &H1FESpace, ess_tdofs);
          }
       }

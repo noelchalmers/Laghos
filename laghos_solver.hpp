@@ -81,7 +81,8 @@ protected:
    Coefficient *material_pcf;
 
    const ParGridFunction &rho0;
-   GridFunctionCoefficient rho_coeff; // TODO: remove when Mv update improved
+   GridFunctionCoefficient rho0_coeff; // TODO: remove when Mv update improved
+   ParGridFunction x0_gf; // copy of initial mesh position
 
    // Velocity mass matrix and local inverses of the energy mass matrices. These
    // are constant in time, due to the pointwise mass conservation property.
@@ -147,7 +148,7 @@ public:
    // projected as a ParGridFunction.
    void ComputeDensity(ParGridFunction &rho);
 
-   void AMRUpdate(int size);
+   void AMRUpdate(const Vector &S);
 
    void DebugDump(std::ostream &os);
 

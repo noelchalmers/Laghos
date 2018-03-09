@@ -95,7 +95,8 @@ LagrangianHydroOperator::LagrangianHydroOperator(int size,
      use_viscosity(visc), p_assembly(pa), cg_rel_tol(cgt), cg_max_iter(cgiter),
      material_pcf(material_),
      rho0(rho0),
-     rho_coeff(&rho0),
+     rho0_coeff(&rho0),
+     x0_gf(&h1_fes),
      Mv(&h1_fes), Me_inv(l2dofs_cnt, l2dofs_cnt, nzones),
      integ_rule(IntRules.Get(h1_fes.GetMesh()->GetElementBaseGeometry(),
                              3*h1_fes.GetOrder(0) + l2_fes.GetOrder(0) - 1)),
@@ -108,7 +109,7 @@ LagrangianHydroOperator::LagrangianHydroOperator(int size,
    // Standard local assembly and inversion for energy mass matrices.
    DenseMatrix Me(l2dofs_cnt);
    DenseMatrixInverse inv(&Me);
-   MassIntegrator mi(rho_coeff, &integ_rule);
+   MassIntegrator mi(rho0_coeff, &integ_rule);
    for (int i = 0; i < nzones; i++)
    {
       mi.AssembleElementMatrix(*l2_fes.GetFE(i),
@@ -118,7 +119,7 @@ LagrangianHydroOperator::LagrangianHydroOperator(int size,
    }
 
    // Standard assembly for the velocity mass matrix.
-   VectorMassIntegrator *vmi = new VectorMassIntegrator(rho_coeff, &integ_rule);
+   VectorMassIntegrator *vmi = new VectorMassIntegrator(rho0_coeff, &integ_rule);
    Mv.AddDomainIntegrator(vmi);
    Mv.Assemble();
 
@@ -142,6 +143,9 @@ LagrangianHydroOperator::LagrangianHydroOperator(int size,
                                            integ_rule.IntPoint(q).weight;
       }
    }
+
+   // Save initial (undeformed) mesh configuration for use in AMRUpdate later.
+   x0_gf = *(h1_fes.GetMesh()->GetNodes());
 
    // Initial local mesh size (assumes all mesh elements are of the same type).
    double loc_area = 0.0, glob_area;
@@ -614,13 +618,24 @@ void LagrangianHydroOperator::UpdateQuadratureData(const Vector &S) const
    timer.quad_tstep += nzones;
 }
 
-void LagrangianHydroOperator::AMRUpdate(int size)
+void LagrangianHydroOperator::AMRUpdate(const Vector &S)
 {
-   width = height = size;
-   nzones = H1FESpace.GetMesh()->GetNE();
+   ParMesh *pmesh = H1FESpace.GetParMesh();
 
+   width = height = S.Size();
+   nzones = pmesh->GetNE();
+
+   x0_gf.Update();
+
+   // go back to initial mesh configuration temporarily
+   int own_nodes = 0;
+   GridFunction *x_gf = &x0_gf;
+   pmesh->SwapNodes(x_gf, own_nodes);
+
+   // update quadrature data
    /*quad_data.Resize(dim, nzones, integ_rule.GetNPoints());
-   quad_data_is_current = false;*/
+   quad_data_is_current = false;
+   UpdateQuadratureData(S);*/
 
    // update mass matrix: TODO: don't reassemble everything
    Mv.Update();
@@ -665,6 +680,9 @@ void LagrangianHydroOperator::AMRUpdate(int size)
                                            integ_rule.IntPoint(q).weight;
       }
    }*/
+
+   // swap back to deformed mesh configuration
+   pmesh->SwapNodes(x_gf, own_nodes);
 }
 
 void LagrangianHydroOperator::DebugDump(std::ostream &os)
