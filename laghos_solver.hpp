@@ -80,7 +80,7 @@ protected:
    const int cg_max_iter;
    Coefficient *material_pcf;
 
-   const ParGridFunction &rho0;
+   ParGridFunction &rho0;
    GridFunctionCoefficient rho0_coeff; // TODO: remove when Mv update improved
    ParGridFunction x0_gf; // copy of initial mesh position
 

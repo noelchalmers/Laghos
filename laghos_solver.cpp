@@ -626,6 +626,7 @@ void LagrangianHydroOperator::AMRUpdate(const Vector &S)
    nzones = pmesh->GetNE();
 
    x0_gf.Update();
+   rho0.Update();
 
    // go back to initial mesh configuration temporarily
    int own_nodes = 0;
@@ -656,8 +657,8 @@ void LagrangianHydroOperator::AMRUpdate(const Vector &S)
    quad_data.Resize(dim, nzones, integ_rule.GetNPoints());
    quad_data_is_current = false;
 
-   // FIXME: remove code duplication
    // Update 'rho0DetJ0' and 'Jac0inv' at all quadrature points.
+   // TODO: remove code duplication
    const int nqp = integ_rule.GetNPoints();
    Vector rho_vals(nqp);
    for (int i = 0; i < nzones; i++)

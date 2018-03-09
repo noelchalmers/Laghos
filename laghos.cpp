@@ -590,10 +590,16 @@ int main(int argc, char *argv[])
             }
             pmesh->GeneralRefinement(refs, 1, 1);
 
-            // update the state and the hydro operator
+            // update state and operator
             AMRUpdate(S, S_old, true_offset, x_gf, v_gf, e_gf);
-            rho0_gf.Update();
             oper.AMRUpdate(S);
+
+            pmesh->Rebalance();
+
+            // update state and operator
+            AMRUpdate(S, S_old, true_offset, x_gf, v_gf, e_gf);
+            oper.AMRUpdate(S);
+
             GetZeroBCDofs(pmesh, &H1FESpace, ess_tdofs);
          }
       }
