@@ -409,7 +409,7 @@ int main(int argc, char *argv[])
                                 ess_tdofs, rho0_gf, source, cfl, material_pcf,
                                 visc, p_assembly, cg_tol, cg_max_iter);
 
-   socketstream vis_rho, vis_v, vis_e;
+   socketstream vis_rho, vis_v, vis_e, vis_spy;
    char vishost[] = "localhost";
    int  visport   = 19916;
 
@@ -425,6 +425,7 @@ int main(int argc, char *argv[])
       vis_rho.precision(8);
       vis_v.precision(8);
       vis_e.precision(8);
+      vis_spy.precision(8);
 
       int Wx = 0, Wy = 0; // window position
       const int Ww = 500, Wh = 500; // window size
@@ -432,6 +433,9 @@ int main(int argc, char *argv[])
 
       VisualizeField(vis_rho, vishost, visport, rho_gf,
                      "Density", Wx, Wy, Ww, Wh);
+      Wx += offx;
+      VisualizeField(vis_spy, vishost, visport, oper.GetDebugSpy(),
+                     "Spy", Wx, Wy, Ww, Wh);
       Wx += offx;
       /*VisualizeField(vis_v, vishost, visport, v_gf,
                      "Velocity", Wx, Wy, Ww, Wh);
@@ -527,6 +531,9 @@ int main(int argc, char *argv[])
 
             VisualizeField(vis_rho, vishost, visport, rho_gf,
                            "Density", Wx, Wy, Ww, Wh);
+            Wx += offx;
+            VisualizeField(vis_spy, vishost, visport, oper.GetDebugSpy(),
+                           "Spy", Wx, Wy, Ww, Wh);
             Wx += offx;
             /*VisualizeField(vis_v, vishost, visport,
                            v_gf, "Velocity", Wx, Wy, Ww, Wh);

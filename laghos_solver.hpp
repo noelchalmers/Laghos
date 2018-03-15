@@ -113,6 +113,11 @@ protected:
    // Linear solver for energy.
    CGSolver locCG;
 
+   // Debug: grid function to spy on quadrature point values
+   L2_FECollection qp_spy_fec;
+   ParFiniteElementSpace qp_spy_fes;
+   mutable ParGridFunction qp_spy_gf;
+
    mutable TimingData timer;
 
    void ComputeMaterialProperties(int nvalues, const double gamma[],
@@ -151,6 +156,7 @@ public:
    void AMRUpdate(const Vector &S);
 
    void DebugDump(std::ostream &os);
+   ParGridFunction& GetDebugSpy() { return qp_spy_gf; }
 
    void PrintTimingData(bool IamRoot, int steps);
 

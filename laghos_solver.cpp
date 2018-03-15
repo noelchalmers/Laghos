@@ -104,7 +104,11 @@ LagrangianHydroOperator::LagrangianHydroOperator(int size,
      quad_data_is_current(false),
      Force(&l2_fes, &h1_fes), ForcePA(&quad_data, h1_fes, l2_fes),
      VMassPA(&quad_data, H1FESpace), locEMassPA(&quad_data, l2_fes),
-     locCG(), timer()
+     locCG(),
+     qp_spy_fec(int(round(sqrt(integ_rule.GetNPoints()))) - 1, dim),
+     qp_spy_fes(h1_fes.GetParMesh(), &qp_spy_fec),
+     qp_spy_gf(&qp_spy_fes),
+     timer()
 {
    // Standard local assembly and inversion for energy mass matrices.
    DenseMatrix Me(l2dofs_cnt);
@@ -489,7 +493,11 @@ void LagrangianHydroOperator::UpdateQuadratureData(const Vector &S) const
             x.GetSubVector(H1dofs, vector_vals);
             evaluator->GetVectorGrad(vecvalMat, Jpr_b[z]);
          }
-         else { e.GetValues(z_id, integ_rule, e_vals); }
+         else
+         {
+            e.GetValues(z_id, integ_rule, e_vals);
+         }
+
          for (int q = 0; q < nqp; q++)
          {
             const IntegrationPoint &ip = integ_rule.IntPoint(q);
@@ -514,6 +522,10 @@ void LagrangianHydroOperator::UpdateQuadratureData(const Vector &S) const
       for (int z = 0; z < nzones_batch; z++)
       {
          ElementTransformation *T = H1FESpace.GetElementTransformation(z_id);
+
+         Array<int> spy_dofs;
+         qp_spy_fes.GetElementDofs(z_id, spy_dofs);
+
          if (p_assembly)
          {
             // All reference->physical Jacobians at the quadrature points.
@@ -602,6 +614,10 @@ void LagrangianHydroOperator::UpdateQuadratureData(const Vector &S) const
                      stressJiT(vd, gd);
                }
             }
+
+            // spy on some quadrature point value
+            //qp_spy_gf[spy_dofs[q]] = p;
+            qp_spy_gf[spy_dofs[q]] = visc_coeff;
          }
          ++z_id;
       }
