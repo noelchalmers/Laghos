@@ -106,6 +106,8 @@ int main(int argc, char *argv[])
    const char *basename = "results/Laghos";
    int partition_type = 111;
    bool amr = false;
+   int amr_max_level = 5;
+   double amr_threshold = 1e-3;
 
    OptionsParser args(argc, argv);
    args.AddOption(&mesh_file, "-m", "--mesh",
@@ -114,6 +116,8 @@ int main(int argc, char *argv[])
                   "Number of times to refine the mesh uniformly in serial.");
    args.AddOption(&rp_levels, "-rp", "--refine-parallel",
                   "Number of times to refine the mesh uniformly in parallel.");
+   args.AddOption(&amr_max_level, "-rm", "--refine-max",
+                  "Maximum AMR refinement level.");
    args.AddOption(&problem, "-p", "--problem", "Problem setup to use.");
    args.AddOption(&order_v, "-ok", "--order-kinematic",
                   "Order (degree) of the kinematic finite element space.");
@@ -136,6 +140,8 @@ int main(int argc, char *argv[])
                   "Activate 1D tensor-based assembly (partial assembly).");
    args.AddOption(&amr, "-amr", "--enable-amr", "-no-amr", "--disable-amr",
                   "Experimental adaptive mesh refinement (problem 1 only).");
+   args.AddOption(&amr_threshold, "-at", "--amr-threshold",
+                  "Error threshold for AMR.");
    args.AddOption(&visualization, "-vis", "--visualization", "-no-vis",
                   "--no-visualization",
                   "Enable or disable GLVis visualization.");
@@ -178,14 +184,15 @@ int main(int argc, char *argv[])
    for (int lev = 0; lev < rs_levels; lev++)
    {
       mesh->UniformRefinement();
-/*      if (!amr)
-      {
-         mesh->UniformRefinement();
-      }
-      else
+   }
+
+   // Initial AMR mesh for Sedov
+   if (amr)
+   {
+      for (int lev = rs_levels; lev < amr_max_level; lev++)
       {
          mesh->RefineAtVertex(Vertex(0, 0, 0));
-      }*/
+      }
    }
 
    if (p_assembly && dim == 1)
@@ -415,7 +422,7 @@ int main(int argc, char *argv[])
    char vishost[] = "localhost";
    int  visport   = 19916;
 
-   ParGridFunction rho_gf, error_est_gf;
+   ParGridFunction rho_gf;
    if (visualization || visit)
    {
       oper.ComputeDensity(rho_gf);
@@ -439,9 +446,9 @@ int main(int argc, char *argv[])
       VisualizeField(vis_rho, vishost, visport, rho_gf,
                      "Density", Wx, Wy, Ww, Wh);
       Wx += offx;
-      VisualizeField(vis_spy, vishost, visport, oper.GetDebugSpy(),
+      /*VisualizeField(vis_spy, vishost, visport, oper.GetDebugSpy(),
                      "Spy", Wx, Wy, Ww, Wh);
-      Wx += offx;
+      Wx += offx;*/
       /*VisualizeField(vis_v, vishost, visport, v_gf,
                      "Velocity", Wx, Wy, Ww, Wh);
       Wx += offx;
@@ -527,11 +534,9 @@ int main(int argc, char *argv[])
          // another set of GLVis connections (one from each rank):
          MPI_Barrier(pmesh->GetComm());
 
-         Vector error_est;
          if (visualization || visit || gfprint)
          {
             oper.ComputeDensity(rho_gf);
-            ZZLikeErrorEstimator(rho_gf, error_est);
          }
          if (visualization)
          {
@@ -545,9 +550,6 @@ int main(int argc, char *argv[])
             /*VisualizeField(vis_spy, vishost, visport,
                            oper.GetDebugSpy(), "Spy", Wx, Wy, Ww, Wh);
             Wx += offx;*/
-            VisualizeElementValues(vis_spy, vishost, visport,
-                                   pmesh, error_est, "Error Est", Wx, Wy, Ww, Wh);
-            Wx += offx;
             /*VisualizeField(vis_v, vishost, visport,
                            v_gf, "Velocity", Wx, Wy, Ww, Wh);
             Wx += offx;
@@ -599,15 +601,26 @@ int main(int argc, char *argv[])
 
       if (amr)
       {
-         if (ti % 100 == 0)
+         Vector error_est;
+         oper.ComputeDensity(rho_gf);
+         ZZLikeErrorEstimator(rho_gf, error_est);
+
+         /*VisualizeElementValues(vis_spy, vishost, visport,
+                                pmesh, error_est,
+                                "Error Est", 600, 20, 500, 500);*/
+
+         Array<int> refs;
+         for (int i = 0; i < pmesh->GetNE(); i++)
          {
-            // refine one random element
-            Array<int> refs;
-            int r = rand(), e = rand();
-            if (r % num_tasks == myid)
+            if (error_est(i) > amr_threshold &&
+                pmesh->pncmesh->GetElementDepth(i) < amr_max_level)
             {
-               refs.Append(e % pmesh->GetNE());
+               refs.Append(i);
             }
+         }
+
+         if (pmesh->ReduceInt(refs.Size()))
+         {
             pmesh->GeneralRefinement(refs, 1, 1);
 
             // update state and operator
@@ -623,14 +636,6 @@ int main(int argc, char *argv[])
             GetZeroBCDofs(pmesh, &H1FESpace, ess_tdofs);
          }
       }
-
-      /*if (ti == 20 && myid == 0)
-      {
-         std::ofstream f(amr ? "laghos-dump-amr.txt" : "laghos-dump.txt");
-         oper.DebugDump(f);
-         f << "ess_tdofs:\n"; ess_tdofs.Print(f);
-         f << "rho0_gf:\n"; rho0_gf.Print(f);
-      }*/
    }
 
    switch (ode_solver_type)
@@ -715,24 +720,6 @@ void ZZLikeErrorEstimator(ParGridFunction &rho, Vector &errors)
    {
       errors(i) = ComputeElementLpDistance(2, i, rho, smoothed);
    }
-
-#if 0
-   // return the difference of smoothed rho and original rho
-   error.SetSpace(l2_fes);
-   //error = rho;
-
-   Array<int> dofs1, dofs2;
-   Vector values;
-   for (int i = 0; i < pmesh->GetNE(); i++)
-   {
-      h1_fes->GetElementDofs(i, dofs1);
-      l2_fes->GetElementDofs(i, dofs2);
-
-      smoothed.GetSubVector(dofs1, values);
-      //error.AddElementVector(dofs2, -1.0, values);
-      error.SetSubVector(dofs2, values);
-   }
-#endif
 }
 
 void GetZeroBCDofs(ParMesh *pmesh, ParFiniteElementSpace *pspace,

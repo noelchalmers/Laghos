@@ -117,9 +117,9 @@ LagrangianHydroOperator::LagrangianHydroOperator(int size,
      Force(&l2_fes, &h1_fes), ForcePA(&quad_data, h1_fes, l2_fes),
      VMassPA(&quad_data, H1FESpace), locEMassPA(&quad_data, l2_fes),
      locCG(),
-     qp_spy_fec(int(round(sqrt(integ_rule.GetNPoints()))) - 1, dim),
-     qp_spy_fes(h1_fes.GetParMesh(), &qp_spy_fec),
-     qp_spy_gf(&qp_spy_fes),
+     //qp_spy_fec(int(round(sqrt(integ_rule.GetNPoints()))) - 1, dim),
+     //qp_spy_fes(h1_fes.GetParMesh(), &qp_spy_fec),
+     //qp_spy_gf(&qp_spy_fes),
      timer()
 {
    // Standard local assembly and inversion for energy mass matrices.
@@ -538,8 +538,8 @@ void LagrangianHydroOperator::UpdateQuadratureData(const Vector &S) const
       {
          ElementTransformation *T = H1FESpace.GetElementTransformation(z_id);
 
-         Array<int> spy_dofs;
-         qp_spy_fes.GetElementDofs(z_id, spy_dofs);
+         //Array<int> spy_dofs;
+         //qp_spy_fes.GetElementDofs(z_id, spy_dofs);
 
          if (p_assembly)
          {
@@ -632,7 +632,7 @@ void LagrangianHydroOperator::UpdateQuadratureData(const Vector &S) const
 
             // spy on some quadrature point value
             //qp_spy_gf[spy_dofs[q]] = p;
-            qp_spy_gf[spy_dofs[q]] = visc_coeff;
+            //qp_spy_gf[spy_dofs[q]] = visc_coeff;
          }
          ++z_id;
       }
@@ -712,6 +712,8 @@ void LagrangianHydroOperator::AMRUpdate(const Vector &S)
 
    // swap back to deformed mesh configuration
    pmesh->SwapNodes(x_gf, own_nodes);
+
+   //qp_spy_fes.Update(false);
 }
 
 void LagrangianHydroOperator::DebugDump(std::ostream &os)
