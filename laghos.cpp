@@ -65,6 +65,8 @@ int problem;
 
 void display_banner(ostream & os);
 
+void ZZLikeErrorEstimator(ParGridFunction &rho, Vector &errors);
+
 void AMRUpdate(BlockVector &S, BlockVector &S_tmp,
                Array<int> &true_offset,
                ParGridFunction &x_gf,
@@ -413,8 +415,11 @@ int main(int argc, char *argv[])
    char vishost[] = "localhost";
    int  visport   = 19916;
 
-   ParGridFunction rho_gf;
-   if (visualization || visit) { oper.ComputeDensity(rho_gf); }
+   ParGridFunction rho_gf, error_est_gf;
+   if (visualization || visit)
+   {
+      oper.ComputeDensity(rho_gf);
+   }
 
    if (visualization)
    {
@@ -522,7 +527,12 @@ int main(int argc, char *argv[])
          // another set of GLVis connections (one from each rank):
          MPI_Barrier(pmesh->GetComm());
 
-         if (visualization || visit || gfprint) { oper.ComputeDensity(rho_gf); }
+         Vector error_est;
+         if (visualization || visit || gfprint)
+         {
+            oper.ComputeDensity(rho_gf);
+            ZZLikeErrorEstimator(rho_gf, error_est);
+         }
          if (visualization)
          {
             int Wx = 0, Wy = 0; // window position
@@ -532,8 +542,11 @@ int main(int argc, char *argv[])
             VisualizeField(vis_rho, vishost, visport, rho_gf,
                            "Density", Wx, Wy, Ww, Wh);
             Wx += offx;
-            VisualizeField(vis_spy, vishost, visport, oper.GetDebugSpy(),
-                           "Spy", Wx, Wy, Ww, Wh);
+            /*VisualizeField(vis_spy, vishost, visport,
+                           oper.GetDebugSpy(), "Spy", Wx, Wy, Ww, Wh);
+            Wx += offx;*/
+            VisualizeElementValues(vis_spy, vishost, visport,
+                                   pmesh, error_est, "Error Est", Wx, Wy, Ww, Wh);
             Wx += offx;
             /*VisualizeField(vis_v, vishost, visport,
                            v_gf, "Velocity", Wx, Wy, Ww, Wh);
@@ -643,6 +656,84 @@ int main(int argc, char *argv[])
    return 0;
 }
 
+
+void ZZLikeErrorEstimator(ParGridFunction &rho, Vector &errors)
+{
+   ParFiniteElementSpace *l2_fes = rho.ParFESpace();
+   ParMesh *pmesh = l2_fes->GetParMesh();
+
+   int dim = pmesh->Dimension();
+   int order = l2_fes->GetOrder(0);
+   int btype = ((L2_FECollection*) l2_fes->FEColl())->GetBasisType();
+
+   // set up global projection of 'rho' to a continuous space
+   H1_FECollection* h1_fec = new H1_FECollection(order, dim, btype);
+   ParFiniteElementSpace* h1_fes = new ParFiniteElementSpace(pmesh, h1_fec);
+
+   ParBilinearForm *a = new ParBilinearForm(h1_fes);
+   ParLinearForm *b = new ParLinearForm(h1_fes);
+
+   GridFunctionCoefficient gf_coef(&rho);
+
+   a->AddDomainIntegrator(new MassIntegrator);
+   b->AddDomainIntegrator(new DomainLFIntegrator(gf_coef));
+
+   b->Assemble();
+   a->Assemble();
+   a->Finalize();
+
+   HypreParMatrix* A = a->ParallelAssemble();  delete a;
+   HypreParVector* B = b->ParallelAssemble();  delete b;
+
+   // solve for the projected/smoothed 'rho'
+   ParGridFunction smoothed(h1_fes);
+   {
+      HypreBoomerAMG amg(*A);
+      amg.SetPrintLevel(0);
+
+      const double solver_tol = 1e-12;
+      const int solver_max_it = 200;
+
+      HyprePCG pcg(*A);
+      pcg.SetTol(solver_tol);
+      pcg.SetMaxIter(solver_max_it);
+      pcg.SetPrintLevel(0);
+      pcg.SetPreconditioner(amg);
+
+      HypreParVector X(h1_fes);
+      pcg.Mult(*B, X);
+
+      smoothed.Distribute(X);
+   }
+
+   delete A;
+   delete B;
+
+   // subtact rho and smoothed rho, return norm for each element
+   errors.SetSize(pmesh->GetNE());
+   for (int i = 0; i < pmesh->GetNE(); i++)
+   {
+      errors(i) = ComputeElementLpDistance(2, i, rho, smoothed);
+   }
+
+#if 0
+   // return the difference of smoothed rho and original rho
+   error.SetSpace(l2_fes);
+   //error = rho;
+
+   Array<int> dofs1, dofs2;
+   Vector values;
+   for (int i = 0; i < pmesh->GetNE(); i++)
+   {
+      h1_fes->GetElementDofs(i, dofs1);
+      l2_fes->GetElementDofs(i, dofs2);
+
+      smoothed.GetSubVector(dofs1, values);
+      //error.AddElementVector(dofs2, -1.0, values);
+      error.SetSubVector(dofs2, values);
+   }
+#endif
+}
 
 void GetZeroBCDofs(ParMesh *pmesh, ParFiniteElementSpace *pspace,
                    Array<int> &ess_tdofs)

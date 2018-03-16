@@ -75,6 +75,18 @@ void VisualizeField(socketstream &sock, const char *vishost, int visport,
    while (connection_failed);
 }
 
+void VisualizeElementValues(socketstream &sock, const char *vishost, int visport,
+                            ParMesh* pmesh, Vector &values, const char *title,
+                            int x, int y, int w, int h)
+{
+   L2_FECollection l2_fec(0, pmesh->Dimension());
+   ParFiniteElementSpace l2_fes(pmesh, &l2_fec);
+   ParGridFunction l2_gf(&l2_fes);
+   l2_gf = values;
+   VisualizeField(sock, vishost, visport, l2_gf, title, x, y, w, h);
+}
+
+
 LagrangianHydroOperator::LagrangianHydroOperator(int size,
                                                  ParFiniteElementSpace &h1_fes,
                                                  ParFiniteElementSpace &l2_fes,
@@ -364,9 +376,11 @@ void LagrangianHydroOperator::ComputeDensity(ParGridFunction &rho)
    Vector rhs(l2dofs_cnt), rho_z(l2dofs_cnt);
    Array<int> dofs(l2dofs_cnt);
    DenseMatrixInverse inv(&Mrho);
+
    MassIntegrator mi(&integ_rule);
    DensityIntegrator di(quad_data);
    di.SetIntRule(&integ_rule);
+
    for (int i = 0; i < nzones; i++)
    {
       di.AssembleRHSElementVect(*L2FESpace.GetFE(i),
@@ -375,6 +389,7 @@ void LagrangianHydroOperator::ComputeDensity(ParGridFunction &rho)
                                *L2FESpace.GetElementTransformation(i), Mrho);
       inv.Factor();
       inv.Mult(rhs, rho_z);
+
       L2FESpace.GetElementDofs(i, dofs);
       rho.SetSubVector(dofs, rho_z);
    }

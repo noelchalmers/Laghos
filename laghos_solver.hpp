@@ -40,6 +40,11 @@ void VisualizeField(socketstream &sock, const char *vishost, int visport,
                     int x = 0, int y = 0, int w = 400, int h = 400,
                     bool vec = false);
 
+/// Visualize per element scalar values.
+void VisualizeElementValues(socketstream &sock, const char *vishost, int visport,
+                            ParMesh* pmesh, Vector &values, const char *title,
+                            int x, int y, int w, int h);
+
 // These are defined in laghos.cpp
 double rho0(const Vector &);
 void v0(const Vector &, Vector &);
