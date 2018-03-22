@@ -158,10 +158,13 @@ public:
    // projected as a ParGridFunction.
    void ComputeDensity(ParGridFunction &rho);
 
-   void AMRUpdate(const Vector &S);
+   void AMRUpdate(const Vector &S, bool quick);
 
    void DebugDump(std::ostream &os);
    //ParGridFunction& GetDebugSpy() { return qp_spy_gf; }
+
+   void SetH0(double h0) { quad_data.h0 = h0; }
+   double GetH0() const { return quad_data.h0; }
 
    void PrintTimingData(bool IamRoot, int steps);
 

@@ -418,6 +418,18 @@ int main(int argc, char *argv[])
                                 ess_tdofs, rho0_gf, source, cfl, material_pcf,
                                 visc, p_assembly, cg_tol, cg_max_iter);
 
+   if (amr)
+   {
+      // tweak h0, set it as if the mesh was fully refined to amr_max_level
+      double elem_size = 0.5; // FIXME
+      double h0 = elem_size / (1 << amr_max_level) / order_v;
+      oper.SetH0(h0);
+   }
+   if (myid == 0)
+   {
+      std::cout << "h0 = " << oper.GetH0() << std::endl;
+   }
+
    socketstream vis_rho, vis_v, vis_e, vis_spy;
    char vishost[] = "localhost";
    int  visport   = 19916;
@@ -550,12 +562,12 @@ int main(int argc, char *argv[])
             /*VisualizeField(vis_spy, vishost, visport,
                            oper.GetDebugSpy(), "Spy", Wx, Wy, Ww, Wh);
             Wx += offx;*/
-            /*VisualizeField(vis_v, vishost, visport,
+            VisualizeField(vis_v, vishost, visport,
                            v_gf, "Velocity", Wx, Wy, Ww, Wh);
             Wx += offx;
             VisualizeField(vis_e, vishost, visport, e_gf,
                            "Specific Internal Energy", Wx, Wy, Ww,Wh);
-            Wx += offx;*/
+            Wx += offx;
          }
 
          if (visit)
@@ -625,13 +637,13 @@ int main(int argc, char *argv[])
 
             // update state and operator
             AMRUpdate(S, S_old, true_offset, x_gf, v_gf, e_gf);
-            oper.AMRUpdate(S);
+            oper.AMRUpdate(S, true);
 
             pmesh->Rebalance();
 
             // update state and operator
             AMRUpdate(S, S_old, true_offset, x_gf, v_gf, e_gf);
-            oper.AMRUpdate(S);
+            oper.AMRUpdate(S, false);
 
             GetZeroBCDofs(pmesh, &H1FESpace, ess_tdofs);
          }

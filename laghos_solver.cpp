@@ -649,7 +649,7 @@ void LagrangianHydroOperator::UpdateQuadratureData(const Vector &S) const
    timer.quad_tstep += nzones;
 }
 
-void LagrangianHydroOperator::AMRUpdate(const Vector &S)
+void LagrangianHydroOperator::AMRUpdate(const Vector &S, bool quick)
 {
    ParMesh *pmesh = H1FESpace.GetParMesh();
 
@@ -658,6 +658,8 @@ void LagrangianHydroOperator::AMRUpdate(const Vector &S)
 
    x0_gf.Update();
    rho0.Update();
+
+   if (quick) { return; }
 
    // go back to initial mesh configuration temporarily
    int own_nodes = 0;
