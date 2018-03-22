@@ -65,8 +65,6 @@ int problem;
 
 void display_banner(ostream & os);
 
-void ZZLikeErrorEstimator(ParGridFunction &rho, Vector &errors);
-
 void AMRUpdate(BlockVector &S, BlockVector &S_tmp,
                Array<int> &true_offset,
                ParGridFunction &x_gf,
@@ -107,7 +105,7 @@ int main(int argc, char *argv[])
    int partition_type = 111;
    bool amr = false;
    int amr_max_level = 5;
-   double amr_threshold = 1e-3;
+   double amr_threshold = 0.005; //2e-4;
 
    OptionsParser args(argc, argv);
    args.AddOption(&mesh_file, "-m", "--mesh",
@@ -440,7 +438,7 @@ int main(int argc, char *argv[])
       oper.ComputeDensity(rho_gf);
    }
 
-   if (visualization)
+/*   if (visualization)
    {
       // Make sure all MPI ranks have sent their 'v' solution before initiating
       // another set of GLVis connections (one from each rank):
@@ -458,15 +456,15 @@ int main(int argc, char *argv[])
       VisualizeField(vis_rho, vishost, visport, rho_gf,
                      "Density", Wx, Wy, Ww, Wh);
       Wx += offx;
-      /*VisualizeField(vis_spy, vishost, visport, oper.GetDebugSpy(),
+      VisualizeField(vis_spy, vishost, visport, oper.GetDebugSpy(),
                      "Spy", Wx, Wy, Ww, Wh);
-      Wx += offx;*/
-      /*VisualizeField(vis_v, vishost, visport, v_gf,
+      Wx += offx;
+      VisualizeField(vis_v, vishost, visport, v_gf,
                      "Velocity", Wx, Wy, Ww, Wh);
       Wx += offx;
       VisualizeField(vis_e, vishost, visport, e_gf,
-                     "Specific Internal Energy", Wx, Wy, Ww, Wh);*/
-   }
+                     "Specific Internal Energy", Wx, Wy, Ww, Wh);
+   }*/
 
    // Save data for VisIt visualization.
    VisItDataCollection visit_dc(basename, pmesh);
@@ -562,12 +560,12 @@ int main(int argc, char *argv[])
             /*VisualizeField(vis_spy, vishost, visport,
                            oper.GetDebugSpy(), "Spy", Wx, Wy, Ww, Wh);
             Wx += offx;*/
-            VisualizeField(vis_v, vishost, visport,
+            /*VisualizeField(vis_v, vishost, visport,
                            v_gf, "Velocity", Wx, Wy, Ww, Wh);
             Wx += offx;
             VisualizeField(vis_e, vishost, visport, e_gf,
                            "Specific Internal Energy", Wx, Wy, Ww,Wh);
-            Wx += offx;
+            Wx += offx;*/
          }
 
          if (visit)
@@ -613,13 +611,14 @@ int main(int argc, char *argv[])
 
       if (amr)
       {
-         Vector error_est;
-         oper.ComputeDensity(rho_gf);
-         ZZLikeErrorEstimator(rho_gf, error_est);
+         Vector &error_est = oper.GetZoneMaxVisc();
 
-         /*VisualizeElementValues(vis_spy, vishost, visport,
-                                pmesh, error_est,
-                                "Error Est", 600, 20, 500, 500);*/
+         if (visualization && (ti % vis_steps) == 0)
+         {
+            VisualizeElementValues(vis_spy, vishost, visport,
+                                   pmesh, error_est,
+                                   "Error Est", 600, 20, 500, 500);
+         }
 
          Array<int> refs;
          for (int i = 0; i < pmesh->GetNE(); i++)
@@ -674,7 +673,7 @@ int main(int argc, char *argv[])
 }
 
 
-void ZZLikeErrorEstimator(ParGridFunction &rho, Vector &errors)
+/*void ZZLikeErrorEstimator(ParGridFunction &rho, Vector &errors)
 {
    ParFiniteElementSpace *l2_fes = rho.ParFESpace();
    ParMesh *pmesh = l2_fes->GetParMesh();
@@ -732,7 +731,7 @@ void ZZLikeErrorEstimator(ParGridFunction &rho, Vector &errors)
    {
       errors(i) = ComputeElementLpDistance(2, i, rho, smoothed);
    }
-}
+}*/
 
 void GetZeroBCDofs(ParMesh *pmesh, ParFiniteElementSpace *pspace,
                    Array<int> &ess_tdofs)

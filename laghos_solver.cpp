@@ -288,7 +288,7 @@ void LagrangianHydroOperator::Mult(const Vector &S, Vector &dS_dt) const
       cg.SetOperator(A);
       cg.SetRelTol(cg_rel_tol); cg.SetAbsTol(0.0);
       cg.SetMaxIter(cg_max_iter);
-      cg.SetPrintLevel(0);
+      cg.SetPrintLevel(-1);
       timer.sw_cgH1.Start();
       cg.Mult(B, X);
       timer.sw_cgH1.Stop();
@@ -464,6 +464,9 @@ void LagrangianHydroOperator::UpdateQuadratureData(const Vector &S) const
    DenseTensor grad_v_ref(dim, dim, nqp);
    Array<int> L2dofs, H1dofs;
 
+   zone_max_visc.SetSize(nzones);
+   zone_max_visc = 0.0;
+
    // Batched computations are needed, because hydrodynamic codes usually
    // involve expensive computations of material properties. Although this
    // miniapp uses simple EOS equations, we still want to represent the batched
@@ -629,6 +632,9 @@ void LagrangianHydroOperator::UpdateQuadratureData(const Vector &S) const
                      stressJiT(vd, gd);
                }
             }
+
+            // Track maximum artificial viscosity per zone
+            zone_max_visc(z_id) = std::max(visc_coeff, zone_max_visc(z_id));
 
             // spy on some quadrature point value
             //qp_spy_gf[spy_dofs[q]] = p;
