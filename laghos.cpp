@@ -76,6 +76,9 @@ void GetZeroBCDofs(ParMesh *pmesh, ParFiniteElementSpace *pspace,
 
 int FindElementWithVertex(const Mesh* mesh, const Vertex &vert);
 
+void GetPerElementMinMax(const GridFunction &gf,
+                         Vector &elem_min, Vector &elem_max);
+
 
 int main(int argc, char *argv[])
 {
@@ -107,7 +110,7 @@ int main(int argc, char *argv[])
    int partition_type = 111;
    bool amr = false;
    int amr_max_level = 5;
-   double amr_threshold = 0.01;
+   double amr_threshold = 1e-3;
    double amr_hysteresis = 0.5;
    const int nc_limit = 1;
 
@@ -485,6 +488,12 @@ int main(int argc, char *argv[])
       visit_dc.Save();
    }
 
+   // AMR refinement indicator
+   /*L2_FECollection amr_l2_fec(0, dim);
+   ParFiniteElementSpace amr_l2_fes(pmesh, &amr_l2_fec);
+   ParGridFunction amr_l2_gf(&amr_l2_fes);
+   amr_l2_gf = 0;*/
+
    // Perform time-integration (looping over the time iterations, ti, with a
    // time-step dt). The object oper is of type LagrangianHydroOperator that
    // defines the Mult() method that used by the time integrators.
@@ -620,6 +629,9 @@ int main(int argc, char *argv[])
       {
          Vector &error_est = oper.GetZoneMaxVisc();
 
+         Vector rho_max, rho_min;
+         GetPerElementMinMax(rho_gf, rho_min, rho_max);
+
          if (visualization && (ti % vis_steps) == 0)
          {
             VisualizeElementValues(vis_dbg, vishost, visport,
@@ -632,8 +644,9 @@ int main(int argc, char *argv[])
          Array<int> refs;
          for (int i = 0; i < pmesh->GetNE(); i++)
          {
-            if (error_est(i) > amr_threshold &&
-                pmesh->pncmesh->GetElementDepth(i) < amr_max_level
+            if (error_est(i) > amr_threshold
+                && pmesh->pncmesh->GetElementDepth(i) < amr_max_level
+                && rho_min(i) > 0.95
                 //&& pmesh->pncmesh->ElementUserData(i) == 0 /* never refine twice */
                 )
             {
@@ -643,12 +656,6 @@ int main(int argc, char *argv[])
 
          if (pmesh->ReduceInt(refs.Size()))
          {
-            /*for (int i = 0; i < refs.Size(); i++)
-            {
-               // remember that this element has been refined
-               pmesh->pncmesh->ElementUserData(refs[i]) = 1;
-            }*/
-
             pmesh->GeneralRefinement(refs, 1, nc_limit);
             mesh_changed = true;
          }
@@ -658,9 +665,12 @@ int main(int argc, char *argv[])
             int index = FindElementWithVertex(pmesh, Vertex(0, 0, 0));
             if (index >= 0) { error_est(index) = 1e10; }
 
+            if (index >= 0) { rho_max(index) = 1e10; }
+
             const int op = 2; // maximum value of fine elements
             mesh_changed = pmesh->DerefineByError(
-               error_est, amr_threshold*amr_hysteresis, nc_limit, op);
+               //error_est, amr_threshold*amr_hysteresis, nc_limit, op);
+               rho_max, 0.9, nc_limit, op);
 
             if (mesh_changed && myid == 0)
             {
@@ -786,6 +796,22 @@ int FindElementWithVertex(const Mesh* mesh, const Vertex &vert)
       }
    }
    return -1;
+}
+
+void GetPerElementMinMax(const GridFunction &gf,
+                         Vector &elem_min, Vector &elem_max)
+{
+   int ne = gf.FESpace()->GetNE();
+   elem_min.SetSize(ne);
+   elem_max.SetSize(ne);
+
+   Array<double> nval;
+   for (int i = 0; i < ne; i++)
+   {
+      gf.GetNodalValues(i, nval);
+      elem_min(i) = nval.Min();
+      elem_max(i) = nval.Max();
+   }
 }
 
 namespace mfem
