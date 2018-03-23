@@ -47,12 +47,12 @@ void VisualizeField(socketstream &sock, const char *vishost, int visport,
          if (!sock.is_open() || !sock)
          {
             sock.open(vishost, visport);
-            sock.precision(8);
             newly_opened = true;
          }
          sock << "solution\n";
       }
 
+      sock.precision(8);
       pmesh.PrintAsOne(sock);
       gf.SaveAsOne(sock);
 

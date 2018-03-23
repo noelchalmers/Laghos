@@ -72,7 +72,9 @@ void AMRUpdate(BlockVector &S, BlockVector &S_tmp,
                ParGridFunction &e_gf);
 
 void GetZeroBCDofs(ParMesh *pmesh, ParFiniteElementSpace *pspace,
-                   Array<int> &ess_tdofs);
+                   int bdr_attr_max, Array<int> &ess_tdofs);
+
+int FindElementWithVertex(const Mesh* mesh, const Vertex &vert);
 
 
 int main(int argc, char *argv[])
@@ -105,7 +107,9 @@ int main(int argc, char *argv[])
    int partition_type = 111;
    bool amr = false;
    int amr_max_level = 5;
-   double amr_threshold = 0.005; //2e-4;
+   double amr_threshold = 0.01;
+   double amr_hysteresis = 0.5;
+   const int nc_limit = 1;
 
    OptionsParser args(argc, argv);
    args.AddOption(&mesh_file, "-m", "--mesh",
@@ -116,6 +120,7 @@ int main(int argc, char *argv[])
                   "Number of times to refine the mesh uniformly in parallel.");
    args.AddOption(&amr_max_level, "-rm", "--refine-max",
                   "Maximum AMR refinement level.");
+
    args.AddOption(&problem, "-p", "--problem", "Problem setup to use.");
    args.AddOption(&order_v, "-ok", "--order-kinematic",
                   "Order (degree) of the kinematic finite element space.");
@@ -126,6 +131,7 @@ int main(int argc, char *argv[])
                   "            2 - RK2 SSP, 3 - RK3 SSP, 4 - RK4, 6 - RK6.");
    args.AddOption(&t_final, "-tf", "--t-final",
                   "Final time; start time is 0.");
+
    args.AddOption(&cfl, "-cfl", "--cfl", "CFL-condition number.");
    args.AddOption(&cg_tol, "-cgt", "--cg-tol",
                   "Relative CG tolerance (velocity linear solve).");
@@ -136,10 +142,14 @@ int main(int argc, char *argv[])
    args.AddOption(&p_assembly, "-pa", "--partial-assembly", "-fa",
                   "--full-assembly",
                   "Activate 1D tensor-based assembly (partial assembly).");
+
    args.AddOption(&amr, "-amr", "--enable-amr", "-no-amr", "--disable-amr",
                   "Experimental adaptive mesh refinement (problem 1 only).");
    args.AddOption(&amr_threshold, "-at", "--amr-threshold",
                   "Error threshold for AMR.");
+   args.AddOption(&amr_hysteresis, "-ah", "--amr-hysteresis",
+                  "Derefinement coefficient for AMR.");
+
    args.AddOption(&visualization, "-vis", "--visualization", "-no-vis",
                   "--no-visualization",
                   "Enable or disable GLVis visualization.");
@@ -151,6 +161,7 @@ int main(int argc, char *argv[])
                   "Enable or disable result output (files in mfem format).");
    args.AddOption(&basename, "-k", "--outputfilename",
                   "Name of the visit dump files");
+
    args.AddOption(&partition_type, "-pt", "--partition",
                   "Customized x/y/z Cartesian MPI partitioning of the serial mesh.\n\t"
                   "Here x,y,z are relative task ratios in each direction.\n\t"
@@ -303,7 +314,8 @@ int main(int argc, char *argv[])
    // Boundary conditions: all tests use v.n = 0 on the boundary, and we assume
    // that the boundaries are straight.
    Array<int> ess_tdofs;
-   GetZeroBCDofs(pmesh, &H1FESpace, ess_tdofs);
+   int bdr_attr_max = pmesh->bdr_attributes.Max();
+   GetZeroBCDofs(pmesh, &H1FESpace, bdr_attr_max, ess_tdofs);
 
    // Define the explicit ODE solver used for time integration.
    ODESolver *ode_solver = NULL;
@@ -428,7 +440,7 @@ int main(int argc, char *argv[])
       std::cout << "h0 = " << oper.GetH0() << std::endl;
    }
 
-   socketstream vis_rho, vis_v, vis_e, vis_spy;
+   socketstream vis_rho, vis_v, vis_e, vis_dbg;
    char vishost[] = "localhost";
    int  visport   = 19916;
 
@@ -444,11 +456,6 @@ int main(int argc, char *argv[])
       // another set of GLVis connections (one from each rank):
       MPI_Barrier(pmesh->GetComm());
 
-      vis_rho.precision(8);
-      vis_v.precision(8);
-      vis_e.precision(8);
-      vis_spy.precision(8);
-
       int Wx = 0, Wy = 0; // window position
       const int Ww = 500, Wh = 500; // window size
       int offx = Ww+10; // window offsets
@@ -456,7 +463,7 @@ int main(int argc, char *argv[])
       VisualizeField(vis_rho, vishost, visport, rho_gf,
                      "Density", Wx, Wy, Ww, Wh);
       Wx += offx;
-      VisualizeField(vis_spy, vishost, visport, oper.GetDebugSpy(),
+      VisualizeField(vis_dbg, vishost, visport, oper.GetDebugSpy(),
                      "Spy", Wx, Wy, Ww, Wh);
       Wx += offx;
       VisualizeField(vis_v, vishost, visport, v_gf,
@@ -557,7 +564,7 @@ int main(int argc, char *argv[])
             VisualizeField(vis_rho, vishost, visport, rho_gf,
                            "Density", Wx, Wy, Ww, Wh);
             Wx += offx;
-            /*VisualizeField(vis_spy, vishost, visport,
+            /*VisualizeField(vis_dbg, vishost, visport,
                            oper.GetDebugSpy(), "Spy", Wx, Wy, Ww, Wh);
             Wx += offx;*/
             /*VisualizeField(vis_v, vishost, visport,
@@ -615,16 +622,20 @@ int main(int argc, char *argv[])
 
          if (visualization && (ti % vis_steps) == 0)
          {
-            VisualizeElementValues(vis_spy, vishost, visport,
+            VisualizeElementValues(vis_dbg, vishost, visport,
                                    pmesh, error_est,
                                    "Error Est", 600, 20, 500, 500);
          }
+
+         bool mesh_changed = false;
 
          Array<int> refs;
          for (int i = 0; i < pmesh->GetNE(); i++)
          {
             if (error_est(i) > amr_threshold &&
-                pmesh->pncmesh->GetElementDepth(i) < amr_max_level)
+                pmesh->pncmesh->GetElementDepth(i) < amr_max_level
+                //&& pmesh->pncmesh->ElementUserData(i) == 0 /* never refine twice */
+                )
             {
                refs.Append(i);
             }
@@ -632,8 +643,33 @@ int main(int argc, char *argv[])
 
          if (pmesh->ReduceInt(refs.Size()))
          {
-            pmesh->GeneralRefinement(refs, 1, 1);
+            /*for (int i = 0; i < refs.Size(); i++)
+            {
+               // remember that this element has been refined
+               pmesh->pncmesh->ElementUserData(refs[i]) = 1;
+            }*/
 
+            pmesh->GeneralRefinement(refs, 1, nc_limit);
+            mesh_changed = true;
+         }
+         else
+         {
+            // make sure the blast corner is never derefined
+            int index = FindElementWithVertex(pmesh, Vertex(0, 0, 0));
+            if (index >= 0) { error_est(index) = 1e10; }
+
+            const int op = 2; // maximum value of fine elements
+            mesh_changed = pmesh->DerefineByError(
+               error_est, amr_threshold*amr_hysteresis, nc_limit, op);
+
+            if (mesh_changed && myid == 0)
+            {
+               cout << "Derefined!" << endl;
+            }
+         }
+
+         if (mesh_changed)
+         {
             // update state and operator
             AMRUpdate(S, S_old, true_offset, x_gf, v_gf, e_gf);
             oper.AMRUpdate(S, true);
@@ -644,7 +680,11 @@ int main(int argc, char *argv[])
             AMRUpdate(S, S_old, true_offset, x_gf, v_gf, e_gf);
             oper.AMRUpdate(S, false);
 
-            GetZeroBCDofs(pmesh, &H1FESpace, ess_tdofs);
+            GetZeroBCDofs(pmesh, &H1FESpace, bdr_attr_max, ess_tdofs);
+
+            /*oper.ComputeDensity(rho_gf);
+            VisualizeField(vis_rho, vishost, visport, rho_gf,
+                           "Density", 0, 0, 500, 500);*/
          }
       }
    }
@@ -673,71 +713,11 @@ int main(int argc, char *argv[])
 }
 
 
-/*void ZZLikeErrorEstimator(ParGridFunction &rho, Vector &errors)
-{
-   ParFiniteElementSpace *l2_fes = rho.ParFESpace();
-   ParMesh *pmesh = l2_fes->GetParMesh();
-
-   int dim = pmesh->Dimension();
-   int order = l2_fes->GetOrder(0);
-   int btype = ((L2_FECollection*) l2_fes->FEColl())->GetBasisType();
-
-   // set up global projection of 'rho' to a continuous space
-   H1_FECollection* h1_fec = new H1_FECollection(order, dim, btype);
-   ParFiniteElementSpace* h1_fes = new ParFiniteElementSpace(pmesh, h1_fec);
-
-   ParBilinearForm *a = new ParBilinearForm(h1_fes);
-   ParLinearForm *b = new ParLinearForm(h1_fes);
-
-   GridFunctionCoefficient gf_coef(&rho);
-
-   a->AddDomainIntegrator(new MassIntegrator);
-   b->AddDomainIntegrator(new DomainLFIntegrator(gf_coef));
-
-   b->Assemble();
-   a->Assemble();
-   a->Finalize();
-
-   HypreParMatrix* A = a->ParallelAssemble();  delete a;
-   HypreParVector* B = b->ParallelAssemble();  delete b;
-
-   // solve for the projected/smoothed 'rho'
-   ParGridFunction smoothed(h1_fes);
-   {
-      HypreBoomerAMG amg(*A);
-      amg.SetPrintLevel(0);
-
-      const double solver_tol = 1e-12;
-      const int solver_max_it = 200;
-
-      HyprePCG pcg(*A);
-      pcg.SetTol(solver_tol);
-      pcg.SetMaxIter(solver_max_it);
-      pcg.SetPrintLevel(0);
-      pcg.SetPreconditioner(amg);
-
-      HypreParVector X(h1_fes);
-      pcg.Mult(*B, X);
-
-      smoothed.Distribute(X);
-   }
-
-   delete A;
-   delete B;
-
-   // subtact rho and smoothed rho, return norm for each element
-   errors.SetSize(pmesh->GetNE());
-   for (int i = 0; i < pmesh->GetNE(); i++)
-   {
-      errors(i) = ComputeElementLpDistance(2, i, rho, smoothed);
-   }
-}*/
-
 void GetZeroBCDofs(ParMesh *pmesh, ParFiniteElementSpace *pspace,
-                   Array<int> &ess_tdofs)
+                   int bdr_attr_max, Array<int> &ess_tdofs)
 {
    ess_tdofs.SetSize(0);
-   Array<int> ess_bdr(pmesh->bdr_attributes.Max()), tdofs1d;
+   Array<int> ess_bdr(bdr_attr_max), tdofs1d;
    for (int d = 0; d < pmesh->Dimension(); d++)
    {
       // Attributes 1/2/3 correspond to fixed-x/y/z boundaries, i.e., we must
@@ -785,6 +765,28 @@ void AMRUpdate(BlockVector &S, BlockVector &S_tmp,
    S_tmp.Update(true_offset);
 }
 
+
+int FindElementWithVertex(const Mesh* mesh, const Vertex &vert)
+{
+   Array<int> v;
+   const double eps = 1e-10;
+
+   for (int i = 0; i < mesh->GetNE(); i++)
+   {
+      mesh->GetElementVertices(i, v);
+      for (int j = 0; j < v.Size(); j++)
+      {
+         double dist = 0.0;
+         for (int l = 0; l < mesh->SpaceDimension(); l++)
+         {
+            double d = vert(l) - mesh->GetVertex(v[j])[l];
+            dist += d*d;
+         }
+         if (dist <= eps*eps) { return i; }
+      }
+   }
+   return -1;
+}
 
 namespace mfem
 {
