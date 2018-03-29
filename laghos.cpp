@@ -109,9 +109,8 @@ int main(int argc, char *argv[])
    const char *basename = "results/Laghos";
    int partition_type = 111;
    bool amr = false;
-   int amr_max_level = 5;
-   double amr_threshold = 1e-3;
-   double amr_hysteresis = 0.5;
+   double amr_threshold = 7e-4;
+   bool derefine = false;
    const int nc_limit = 1;
 
    OptionsParser args(argc, argv);
@@ -121,8 +120,6 @@ int main(int argc, char *argv[])
                   "Number of times to refine the mesh uniformly in serial.");
    args.AddOption(&rp_levels, "-rp", "--refine-parallel",
                   "Number of times to refine the mesh uniformly in parallel.");
-   args.AddOption(&amr_max_level, "-rm", "--refine-max",
-                  "Maximum AMR refinement level.");
 
    args.AddOption(&problem, "-p", "--problem", "Problem setup to use.");
    args.AddOption(&order_v, "-ok", "--order-kinematic",
@@ -150,8 +147,9 @@ int main(int argc, char *argv[])
                   "Experimental adaptive mesh refinement (problem 1 only).");
    args.AddOption(&amr_threshold, "-at", "--amr-threshold",
                   "Error threshold for AMR.");
-   args.AddOption(&amr_hysteresis, "-ah", "--amr-hysteresis",
-                  "Derefinement coefficient for AMR.");
+   args.AddOption(&derefine, "-derefine", "--enable-derefinement",
+                  "-no-derefine", "--disable-derefinement",
+                  "If AMR is enabled, also enable mesh derefinement.");
 
    args.AddOption(&visualization, "-vis", "--visualization", "-no-vis",
                   "--no-visualization",
@@ -192,16 +190,18 @@ int main(int argc, char *argv[])
    // Refine the mesh in serial to increase the resolution.
    Mesh *mesh = new Mesh(mesh_file, 1, 1);
    const int dim = mesh->Dimension();
-   mesh->EnsureNCMesh();
-   for (int lev = 0; lev < rs_levels; lev++)
+   if (!amr)
    {
-      mesh->UniformRefinement();
+      for (int lev = 0; lev < rs_levels; lev++)
+      {
+         mesh->UniformRefinement();
+      }
    }
-
-   // Initial AMR mesh for Sedov
-   if (amr)
+   else
    {
-      for (int lev = rs_levels; lev < amr_max_level; lev++)
+      // Initial refinement for AMR demo on Sedov
+      mesh->EnsureNCMesh();
+      for (int lev = 0; lev < rs_levels; lev++)
       {
          mesh->RefineAtVertex(Vertex(0, 0, 0));
       }
@@ -297,7 +297,10 @@ int main(int argc, char *argv[])
    delete mesh;
 
    // Refine the mesh further in parallel to increase the resolution.
-   for (int lev = 0; lev < rp_levels; lev++) { pmesh->UniformRefinement(); }
+   for (int lev = 0; lev < rp_levels; lev++)
+   {
+      pmesh->UniformRefinement();
+   }
 
    int nzones = pmesh->GetNE(), nzones_min, nzones_max;
    MPI_Reduce(&nzones, &nzones_min, 1, MPI_INT, MPI_MIN, 0, pmesh->GetComm());
@@ -305,6 +308,7 @@ int main(int argc, char *argv[])
    if (myid == 0)
    { cout << "Zones min/max: " << nzones_min << " " << nzones_max << endl; }
 
+   int amr_max_level = rs_levels + rp_levels;
 
    // Define the parallel finite element spaces. We use:
    // - H1 (Gauss-Lobatto, continuous) for position and velocity.
@@ -576,10 +580,10 @@ int main(int argc, char *argv[])
             /*VisualizeField(vis_dbg, vishost, visport,
                            oper.GetDebugSpy(), "Spy", Wx, Wy, Ww, Wh);
             Wx += offx;*/
-            /*VisualizeField(vis_v, vishost, visport,
+            VisualizeField(vis_v, vishost, visport,
                            v_gf, "Velocity", Wx, Wy, Ww, Wh);
             Wx += offx;
-            VisualizeField(vis_e, vishost, visport, e_gf,
+            /*VisualizeField(vis_e, vishost, visport, e_gf,
                            "Specific Internal Energy", Wx, Wy, Ww,Wh);
             Wx += offx;*/
          }
@@ -629,15 +633,15 @@ int main(int argc, char *argv[])
       {
          Vector &error_est = oper.GetZoneMaxVisc();
 
-         Vector rho_max, rho_min;
-         GetPerElementMinMax(rho_gf, rho_min, rho_max);
+         Vector v_max, v_min;
+         GetPerElementMinMax(v_gf, v_min, v_max);
 
-         if (visualization && (ti % vis_steps) == 0)
+         /*if (visualization && (ti % vis_steps) == 0)
          {
             VisualizeElementValues(vis_dbg, vishost, visport,
-                                   pmesh, error_est,
+                                   pmesh, rho_max,//error_est,
                                    "Error Est", 600, 20, 500, 500);
-         }
+         }*/
 
          bool mesh_changed = false;
 
@@ -646,8 +650,7 @@ int main(int argc, char *argv[])
          {
             if (error_est(i) > amr_threshold
                 && pmesh->pncmesh->GetElementDepth(i) < amr_max_level
-                && rho_min(i) > 0.95
-                //&& pmesh->pncmesh->ElementUserData(i) == 0 /* never refine twice */
+                && v_min(i) < 1e-3 // only refine the still area
                 )
             {
                refs.Append(i);
@@ -659,23 +662,29 @@ int main(int argc, char *argv[])
             pmesh->GeneralRefinement(refs, 1, nc_limit);
             mesh_changed = true;
          }
-         else
+         else if (derefine)
          {
+            oper.ComputeDensity(rho_gf);
+
+            Vector rho_max, rho_min;
+            GetPerElementMinMax(rho_gf, rho_min, rho_max);
+
             // make sure the blast corner is never derefined
             int index = FindElementWithVertex(pmesh, Vertex(0, 0, 0));
-            if (index >= 0) { error_est(index) = 1e10; }
-
             if (index >= 0) { rho_max(index) = 1e10; }
+
+            // also, only derefine where the mesh is in motion, i.e. after the shock
+            for (int i = 0; i < pmesh->GetNE(); i++)
+            {
+               if (v_min(i) < 0.05) { rho_max(i) = 1e10; }
+            }
 
             const int op = 2; // maximum value of fine elements
             mesh_changed = pmesh->DerefineByError(
                //error_est, amr_threshold*amr_hysteresis, nc_limit, op);
-               rho_max, 0.9, nc_limit, op);
+               rho_max, 4.0, nc_limit, op);
 
-            if (mesh_changed && myid == 0)
-            {
-               cout << "Derefined!" << endl;
-            }
+            if (mesh_changed && myid == 0) { cout << "Derefined!" << endl; }
          }
 
          if (mesh_changed)
@@ -691,10 +700,6 @@ int main(int argc, char *argv[])
             oper.AMRUpdate(S, false);
 
             GetZeroBCDofs(pmesh, &H1FESpace, bdr_attr_max, ess_tdofs);
-
-            /*oper.ComputeDensity(rho_gf);
-            VisualizeField(vis_rho, vishost, visport, rho_gf,
-                           "Density", 0, 0, 500, 500);*/
          }
       }
    }
@@ -801,16 +806,42 @@ int FindElementWithVertex(const Mesh* mesh, const Vertex &vert)
 void GetPerElementMinMax(const GridFunction &gf,
                          Vector &elem_min, Vector &elem_max)
 {
-   int ne = gf.FESpace()->GetNE();
+   const FiniteElementSpace *space = gf.FESpace();
+   int ne = space->GetNE();
+
    elem_min.SetSize(ne);
    elem_max.SetSize(ne);
 
-   Array<double> nval;
+   Array<int> dofs;
    for (int i = 0; i < ne; i++)
    {
-      gf.GetNodalValues(i, nval);
-      elem_min(i) = nval.Min();
-      elem_max(i) = nval.Max();
+      space->GetElementDofs(i, dofs);
+
+      double min = std::numeric_limits<double>::max(), max = -min;
+
+      for (int j = 0; j < dofs.Size(); j++)
+      {
+         double value = 0.0;
+         if (space->GetVDim() == 1)
+         {
+            value = gf(dofs[j]);
+         }
+         else
+         {
+            double norm2 = 0.0;
+            for (int vd = 0; vd < space->GetVDim(); vd++)
+            {
+               double v = gf(space->DofToVDof(dofs[j], vd));
+               norm2 += v*v;
+            }
+            value = std::sqrt(norm2);
+         }
+         min = std::min(value, min);
+         max = std::max(value, max);
+      }
+
+      elem_min(i) = min;
+      elem_max(i) = max;
    }
 }
 
