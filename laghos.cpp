@@ -670,7 +670,8 @@ int main(int argc, char *argv[])
             Vector rho_max, rho_min;
             GetPerElementMinMax(rho_gf, rho_min, rho_max);
 
-            double threshold, loc_threshold = 0.7 * rho_max.Max();
+            double rho_max_max = rho_max.Size() ? rho_max.Max() : 0.0;
+            double threshold, loc_threshold = 0.7 * rho_max_max;
             MPI_Allreduce(&loc_threshold, &threshold, 1, MPI_DOUBLE, MPI_MAX,
                           pmesh->GetComm());
 
