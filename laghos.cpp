@@ -77,7 +77,8 @@ void GetZeroBCDofs(ParMesh *pmesh, ParFiniteElementSpace *pspace,
 int FindElementWithVertex(const Mesh* mesh, const Vertex &vert);
 
 void GetPerElementMinMax(const GridFunction &gf,
-                         Vector &elem_min, Vector &elem_max);
+                         Vector &elem_min, Vector &elem_max,
+                         int int_order = -1);
 
 
 int main(int argc, char *argv[])
@@ -109,8 +110,8 @@ int main(int argc, char *argv[])
    const char *basename = "results/Laghos";
    int partition_type = 111;
    bool amr = false;
-   double amr_threshold = 7e-4;
-   bool derefine = false;
+   double amr_threshold = 2e-4;
+   bool derefine = true;
    const int nc_limit = 1;
 
    OptionsParser args(argc, argv);
@@ -650,7 +651,7 @@ int main(int argc, char *argv[])
          {
             if (error_est(i) > amr_threshold
                 && pmesh->pncmesh->GetElementDepth(i) < amr_max_level
-                && v_min(i) < 1e-3 // only refine the still area
+                && (v_min(i) < 1e-3 || ti < 50) // only refine the still area
                 )
             {
                refs.Append(i);
@@ -669,6 +670,10 @@ int main(int argc, char *argv[])
             Vector rho_max, rho_min;
             GetPerElementMinMax(rho_gf, rho_min, rho_max);
 
+            double threshold, loc_threshold = 0.7 * rho_max.Max();
+            MPI_Allreduce(&loc_threshold, &threshold, 1, MPI_DOUBLE, MPI_MAX,
+                          pmesh->GetComm());
+
             // make sure the blast corner is never derefined
             int index = FindElementWithVertex(pmesh, Vertex(0, 0, 0));
             if (index >= 0) { rho_max(index) = 1e10; }
@@ -680,11 +685,12 @@ int main(int argc, char *argv[])
             }
 
             const int op = 2; // maximum value of fine elements
-            mesh_changed = pmesh->DerefineByError(
-               //error_est, amr_threshold*amr_hysteresis, nc_limit, op);
-               rho_max, 4.0, nc_limit, op);
-
-            if (mesh_changed && myid == 0) { cout << "Derefined!" << endl; }
+            mesh_changed = pmesh->DerefineByError(rho_max, threshold,
+                                                  nc_limit, op);
+            if (mesh_changed && myid == 0)
+            {
+               cout << "Derefined, threshold = " << threshold << endl;
+            }
          }
 
          if (mesh_changed)
@@ -803,45 +809,48 @@ int FindElementWithVertex(const Mesh* mesh, const Vertex &vert)
    return -1;
 }
 
+void Pow(Vector &vec, double p)
+{
+   for (int i = 0; i < vec.Size(); i++)
+   {
+      vec(i) = std::pow(vec(i), p);
+   }
+}
+
 void GetPerElementMinMax(const GridFunction &gf,
-                         Vector &elem_min, Vector &elem_max)
+                         Vector &elem_min, Vector &elem_max,
+                         int int_order)
 {
    const FiniteElementSpace *space = gf.FESpace();
    int ne = space->GetNE();
 
+   if (int_order < 0) { int_order = space->GetOrder(0) + 1; }
+
    elem_min.SetSize(ne);
    elem_max.SetSize(ne);
 
-   Array<int> dofs;
+   Vector vals, tmp;
    for (int i = 0; i < ne; i++)
    {
-      space->GetElementDofs(i, dofs);
+      int geom = space->GetFE(i)->GetGeomType();
+      const IntegrationRule &ir = IntRules.Get(geom, int_order);
 
-      double min = std::numeric_limits<double>::max(), max = -min;
+      gf.GetValues(i, ir, vals);
 
-      for (int j = 0; j < dofs.Size(); j++)
+      if (space->GetVDim() > 1)
       {
-         double value = 0.0;
-         if (space->GetVDim() == 1)
+         Pow(vals, 2.0);
+         for (int vd = 1; vd < space->GetVDim(); vd++)
          {
-            value = gf(dofs[j]);
+            gf.GetValues(i, ir, tmp, vd+1);
+            Pow(tmp, 2.0);
+            vals += tmp;
          }
-         else
-         {
-            double norm2 = 0.0;
-            for (int vd = 0; vd < space->GetVDim(); vd++)
-            {
-               double v = gf(space->DofToVDof(dofs[j], vd));
-               norm2 += v*v;
-            }
-            value = std::sqrt(norm2);
-         }
-         min = std::min(value, min);
-         max = std::max(value, max);
+         Pow(vals, 0.5);
       }
 
-      elem_min(i) = min;
-      elem_max(i) = max;
+      elem_min(i) = vals.Min();
+      elem_max(i) = vals.Max();
    }
 }
 
