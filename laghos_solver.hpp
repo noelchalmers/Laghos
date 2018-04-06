@@ -118,7 +118,7 @@ protected:
    // Linear solver for energy.
    CGSolver locCG;
 
-   mutable Vector zone_max_visc;
+   mutable Vector zone_max_visc, zone_vgrad;
 
    // Debug: grid function to spy on quadrature point values
    //L2_FECollection qp_spy_fec;
@@ -169,6 +169,7 @@ public:
    double GetH0() const { return quad_data.h0; }
 
    Vector& GetZoneMaxVisc() { return zone_max_visc; }
+   Vector& GetZoneVGrad() { return zone_vgrad; }
 
    void PrintTimingData(bool IamRoot, int steps);
 

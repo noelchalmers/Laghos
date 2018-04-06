@@ -630,6 +630,18 @@ int main(int argc, char *argv[])
          }
       }
 
+      /*if (visualization && (ti % vis_steps) == 0)
+      {
+         Vector vgrad = oper.GetZoneVGrad();
+         for (int i = 0; i < vgrad.Size(); i++)
+         {
+            vgrad(i) = std::min(vgrad(i), 5.0);
+         }
+         VisualizeElementValues(vis_dbg, vishost, visport, pmesh,
+                                vgrad, "VGrad", 1200, 20, 500, 500);
+      }*/
+
+
       if (amr)
       {
          Vector &error_est = oper.GetZoneMaxVisc();
@@ -639,13 +651,15 @@ int main(int argc, char *argv[])
 
          /*if (visualization && (ti % vis_steps) == 0)
          {
-            VisualizeElementValues(vis_dbg, vishost, visport,
-                                   pmesh, rho_max,//error_est,
-                                   "Error Est", 600, 20, 500, 500);
+            VisualizeElementValues(vis_dbg, vishost, visport, pmesh,
+                                   oper.GetZoneMaxVGrad(),
+                                   //rho_max,//error_est,
+                                   "VGrad", 1200, 20, 500, 500);
          }*/
 
          bool mesh_changed = false;
 
+#if 0
          Array<int> refs;
          for (int i = 0; i < pmesh->GetNE(); i++)
          {
@@ -693,6 +707,11 @@ int main(int argc, char *argv[])
                cout << "Derefined, threshold = " << threshold << endl;
             }
          }
+#else
+
+
+#endif
+
 
          if (mesh_changed)
          {

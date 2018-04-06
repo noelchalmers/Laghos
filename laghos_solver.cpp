@@ -470,6 +470,9 @@ void LagrangianHydroOperator::UpdateQuadratureData(const Vector &S) const
    zone_max_visc.SetSize(nzones);
    zone_max_visc = 0.0;
 
+   zone_vgrad.SetSize(nzones);
+   zone_vgrad = 0.0;
+
    // Batched computations are needed, because hydrodynamic codes usually
    // involve expensive computations of material properties. Although this
    // miniapp uses simple EOS equations, we still want to represent the batched
@@ -568,7 +571,7 @@ void LagrangianHydroOperator::UpdateQuadratureData(const Vector &S) const
             stress = 0.0;
             for (int d = 0; d < dim; d++) { stress(d, d) = -p; }
 
-            double visc_coeff = 0.0;
+            double visc_coeff = 0.0, det_v_grad = 0.0;
             if (use_viscosity)
             {
                // Compression-based length scale at the point. The first
@@ -584,6 +587,8 @@ void LagrangianHydroOperator::UpdateQuadratureData(const Vector &S) const
                   v.GetVectorGradient(*T, sgrad_v);
                }
                sgrad_v.Symmetrize();
+               det_v_grad = sgrad_v.Det();
+
                double eig_val_data[3], eig_vec_data[9];
                if (dim==1)
                {
@@ -638,11 +643,14 @@ void LagrangianHydroOperator::UpdateQuadratureData(const Vector &S) const
 
             // Track maximum artificial viscosity per zone
             zone_max_visc(z_id) = std::max(visc_coeff, zone_max_visc(z_id));
+            zone_vgrad(z_id) = std::max(std::abs(det_v_grad), zone_vgrad(z_id));
+            //zone_vgrad(z_id) += std::abs(det_v_grad);
 
             // spy on some quadrature point value
             //qp_spy_gf[spy_dofs[q]] = p;
             //qp_spy_gf[spy_dofs[q]] = visc_coeff;
-         }
+         }         
+         //zone_vgrad(z_id) /= nqp;
          ++z_id;
       }
    }
