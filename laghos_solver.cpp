@@ -601,8 +601,14 @@ void LagrangianHydroOperator::UpdateQuadratureData(const Vector &S) const
                mfem::Mult(Jpr, quad_data.Jac0inv(z_id*nqp + q), Jpi);
                Vector ph_dir(dim); Jpi.Mult(compr_dir, ph_dir);
                // Change of the initial mesh size in the compression direction.
-               const double h = quad_data.h0 * ph_dir.Norml2() /
-                                compr_dir.Norml2();
+               double h0 = quad_data.h0;
+               ParNCMesh* pncmesh = H1FESpace.GetParMesh()->pncmesh;
+               if (pncmesh)
+               {
+                  h0 /= (1 << pncmesh->GetElementDepth(z_id));
+               }
+               //std::cout << h0 << " ";
+               const double h = h0 * ph_dir.Norml2() / compr_dir.Norml2();
 
                // Measure of maximal compression.
                const double mu = eig_val_data[0];

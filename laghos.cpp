@@ -440,7 +440,8 @@ int main(int argc, char *argv[])
    {
       // tweak h0, set it as if the mesh was fully refined to amr_max_level
       double elem_size = 0.5; // FIXME
-      double h0 = elem_size / (1 << amr_max_level) / order_v;
+      //double h0 = elem_size / (1 << amr_max_level) / order_v;*/
+      double h0 = elem_size / order_v;
       oper.SetH0(h0);
    }
    if (myid == 0)
@@ -659,7 +660,7 @@ int main(int argc, char *argv[])
 
          bool mesh_changed = false;
 
-#if 0
+#if 1
          Array<int> refs;
          for (int i = 0; i < pmesh->GetNE(); i++)
          {
