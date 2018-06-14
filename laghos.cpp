@@ -658,8 +658,7 @@ int main(int argc, char *argv[])
          }*/
 
          bool mesh_changed = false;
-
-#if 0
+#if 1
          Array<int> refs;
          for (int i = 0; i < pmesh->GetNE(); i++)
          {
@@ -707,12 +706,7 @@ int main(int argc, char *argv[])
                cout << "Derefined, threshold = " << threshold << endl;
             }
          }
-#else
-
-
 #endif
-
-
          if (mesh_changed)
          {
             // update state and operator
@@ -726,6 +720,8 @@ int main(int argc, char *argv[])
             oper.AMRUpdate(S, false);
 
             GetZeroBCDofs(pmesh, &H1FESpace, bdr_attr_max, ess_tdofs);
+
+            H1FESpace.PrintPartitionStats();
          }
       }
    }
