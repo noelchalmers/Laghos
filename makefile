@@ -97,7 +97,7 @@ endif
 
 CXX = $(MFEM_CXX)
 CPPFLAGS = $(MFEM_CPPFLAGS)
-CXXFLAGS = $(MFEM_CXXFLAGS)
+CXXFLAGS = -g #$(MFEM_CXXFLAGS)
 
 # MFEM config does not define C compiler
 CC     = gcc
@@ -107,7 +107,7 @@ CFLAGS = -O3
 LDFLAGS =
 
 OPTIM_OPTS = -O3
-DEBUG_OPTS = -g -Wall
+DEBUG_OPTS = -g #-Wall
 LAGHOS_DEBUG = $(MFEM_DEBUG)
 ifneq ($(LAGHOS_DEBUG),$(MFEM_DEBUG))
    ifeq ($(LAGHOS_DEBUG),YES)
@@ -120,9 +120,29 @@ endif
 # CXXFLAGS ADDONS **************************************************************
 CXXFLAGS += $(CXXEXTRA)
 
+# NVCC *************************************************************************
+ifneq (,$(nvcc))
+	CXX = nvcc
+	CUFLAGS = -std=c++11 -m64 --restrict $(NV_ARCH) #-rdc=true
+	CXXFLAGS += --restrict $(NV_ARCH) -x=cu
+	CXXFLAGS += $(if $(templates),-D__TEMPLATES__)
+	CUDA_INC = -I$(CUDA_DIR)/samples/common/inc
+	CXXFLAGS += --expt-extended-lambda
+	CUDA_LIBS = -Wl,-rpath -Wl,$(CUDA_DIR)/lib64 -L$(CUDA_DIR)/lib64 \
+					-lcuda -lcudart -lcudadevrt -lnvToolsExt
+endif
+
+# all, targets & laghos ********************************************************
+all:;@$(MAKE) -j $(CPU) laghos
+nv nvcc cuda:;$(MAKE) nvcc=1 templates=1 all
+
+# MPI **************************************************************************
+MPI_INC = -I$(MPI_HOME)/include 
+
 # LAGHOS FLAGS *****************************************************************
-LAGHOS_FLAGS = $(CPPFLAGS) $(CXXFLAGS) $(MFEM_INCFLAGS) $(CUB_INC) $(RAJA_INC) $(CUDA_INC) $(MPI_INC)
-LAGHOS_LIBS = $(MFEM_LIBS) -fopenmp $(RAJA_LIBS) $(CUDA_LIBS) -ldl 
+LAGHOS_FLAGS = $(CPPFLAGS) $(CXXFLAGS) $(MFEM_INCFLAGS) \
+					$(CUB_INC) $(MPI_INC) $(RAJA_INC) $(CUDA_INC) $(MPI_INC)
+LAGHOS_LIBS = $(MFEM_LIBS) $(RAJA_LIBS) $(CUDA_LIBS) -ldl 
 
 ifeq ($(LAGHOS_DEBUG),YES)
    LAGHOS_FLAGS += -DLAGHOS_DEBUG
@@ -160,15 +180,13 @@ HEADER_FILES = laghos_solver.hpp laghos_assembly.hpp
 .c.o:
 	cd $(<D); $(Ccc) -c $(<F)
 
-# all & laghos *********************************************************************
-all:;@$(MAKE) -j $(CPU) laghos
-
+# ******************************************************************************
 laghos: override MFEM_DIR = $(MFEM_DIR1)
 laghos:	$(OBJECT_FILES) $(OBJECT_KERNELS) $(CONFIG_MK) $(MFEM_LIB_FILE)
-	$(CCC) -o laghos $(OBJECT_FILES) $(OBJECT_KERNELS) $(LIBS) -ldl
+	$(MFEM_CXX) -o laghos $(OBJECT_FILES) $(OBJECT_KERNELS) $(LIBS)
 
 # go ***************************************************************************
-go:;@./laghos -cfl 0.1 -rs 0
+go:;@./laghos -cfl 0.1 -rs 0 -ng
 pgo:;@mpirun -n 2 -xterm -1! --tag-output --merge-stderr-to-stdout ./laghos -cfl 0.1 -rs 0
 
 ng:;@./laghos -cfl 0.1 -rs 0 -ng

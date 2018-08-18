@@ -103,6 +103,7 @@ private:
    const QuadratureData &quad_data;
 
 public:
+   using LinearFormIntegrator::AssembleRHSElementVect;
    DensityIntegrator(QuadratureData &quad_data_) : quad_data(quad_data_) { }
 
    virtual void AssembleRHSElementVect(const FiniteElement &fe,

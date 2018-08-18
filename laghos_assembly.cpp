@@ -286,9 +286,9 @@ void FastEvaluator::GetVectorGrad(const DenseMatrix &vec, DenseTensor &J) const
    }
 }
 
-void DensityIntegrator::AssembleRHSElementVect(const FiniteElement &fe,
+void DensityIntegrator::AssembleRHSElementVect(const mfem::FiniteElement &fe,
                                                ElementTransformation &Tr,
-                                               Vector &elvect)
+                                               mfem::Vector &elvect)
 {
    const int ip_cnt = IntRule->GetNPoints();
    Vector shape(fe.GetDof());

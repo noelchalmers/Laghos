@@ -29,7 +29,7 @@ namespace hydrodynamics
 {
 
 // *****************************************************************************
-kForcePAOperator::kForcePAOperator(const QuadratureData *qd,
+kForcePAOperator::kForcePAOperator(QuadratureData *qd,
                                    ParFiniteElementSpace &h1f,
                                    ParFiniteElementSpace &l2f,
                                    const IntegrationRule &ir,
@@ -55,10 +55,27 @@ kForcePAOperator::kForcePAOperator(const QuadratureData *qd,
    gVecL2(h1sz),
    gVecH1(l2sz)
 {
+   push();
    if (!engine) return;
+   
+   dbg("Jac0inv UseExternalData");
+   const int ji_isz = qd->Jac0inv.SizeI();
+   const int ji_jsz = qd->Jac0inv.SizeJ();
+   const int ji_ksz = qd->Jac0inv.SizeK();
+   double *ji_ext_data = (double*)mfem::kernels::kmalloc<double>::operator new(ji_isz*ji_jsz*ji_ksz);
+   qd->Jac0inv.UseExternalData(ji_ext_data, ji_isz,ji_jsz,ji_ksz);
+   
+   dbg("stressJinvT UseExternalData");
+   const int si_isz = qd->stressJinvT.SizeI();
+   const int si_jsz = qd->stressJinvT.SizeJ();
+   const int si_ksz = qd->stressJinvT.SizeK();
+   double *si_ext_data = (double*)mfem::kernels::kmalloc<double>::operator new(si_isz*si_jsz*si_ksz);
+   qd->stressJinvT.UseExternalData(si_ext_data, si_isz,si_jsz,si_ksz);
+  
    const Engine &ng = l2f.GetMesh()->GetEngine();
    gVecL2.Resize(ng.MakeLayout(l2sz));
    gVecH1.Resize(ng.MakeLayout(h1sz));
+   pop();
 }
 
 // *****************************************************************************

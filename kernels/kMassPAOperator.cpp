@@ -58,7 +58,6 @@ void kMassPAOperator::Setup()
 }
 
 // *************************************************************************
-// first pass: dofs.Size(): 8-6-4
 void kMassPAOperator::SetEssentialTrueDofs(mfem::Array<int> &dofs)
 {
    push(Wheat);

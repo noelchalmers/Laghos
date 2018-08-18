@@ -34,7 +34,7 @@ class kForcePAOperator : public AbcForcePAOperator
 {
 private:
    const int dim, nzones;
-   const QuadratureData *quad_data;
+   QuadratureData *quad_data;
    const ParFiniteElementSpace &h1fes, &l2fes;
    const kernels::kFiniteElementSpace &h1k, &l2k;
    const IntegrationRule &integ_rule;
@@ -48,7 +48,7 @@ private:
    const kernels::KernelsDofQuadMaps *l2D2Q, *h1D2Q;
    mutable mfem::Vector gVecL2, gVecH1;
 public:
-   kForcePAOperator(const QuadratureData*,
+   kForcePAOperator(QuadratureData*,
                     ParFiniteElementSpace&,
                     ParFiniteElementSpace&,
                     const IntegrationRule&,
