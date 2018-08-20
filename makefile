@@ -20,8 +20,8 @@ CUDA_DIR ?= /usr/local/cuda
 MFEM_DIR ?= $(HOME)/home/mfem/kernels
 RAJA_DIR ?= $(HOME)/usr/local/raja/last
 MPI_HOME ?= $(HOME)/usr/local/openmpi/3.0.0
-NV_ARCH ?= -arch=sm_60 #-gencode arch=compute_52,code=sm_52 -gencode arch=compute_60,code=sm_60
-CXXEXTRA = -std=c++11 -m64 #-DNDEBUG=1 #-D__NVVP__ #-D__NVVP__ # -DLAGHOS_DEBUG -D__NVVP__
+#NV_ARCH ?= -arch=sm_60 #-gencode arch=compute_52,code=sm_52 -gencode arch=compute_60,code=sm_60
+#CXXEXTRA = -std=c++11 -m64 #-DNDEBUG=1 #-D__NVVP__ #-D__NVVP__ # -DLAGHOS_DEBUG -D__NVVP__
 
 # number of proc to use for compilation stage
 CPU = $(shell echo $(shell getconf _NPROCESSORS_ONLN)*2|bc -l)
@@ -97,7 +97,7 @@ endif
 
 CXX = $(MFEM_CXX)
 CPPFLAGS = $(MFEM_CPPFLAGS)
-CXXFLAGS = -g #$(MFEM_CXXFLAGS)
+CXXFLAGS = $(MFEM_CXXFLAGS)
 
 # MFEM config does not define C compiler
 CC     = gcc
@@ -122,27 +122,27 @@ CXXFLAGS += $(CXXEXTRA)
 
 # NVCC *************************************************************************
 ifneq (,$(nvcc))
-	CXX = nvcc
-	CUFLAGS = -std=c++11 -m64 --restrict $(NV_ARCH) #-rdc=true
-	CXXFLAGS += --restrict $(NV_ARCH) -x=cu
-	CXXFLAGS += $(if $(templates),-D__TEMPLATES__)
-	CUDA_INC = -I$(CUDA_DIR)/samples/common/inc
-	CXXFLAGS += --expt-extended-lambda
-	CUDA_LIBS = -Wl,-rpath -Wl,$(CUDA_DIR)/lib64 -L$(CUDA_DIR)/lib64 \
-					-lcuda -lcudart -lcudadevrt -lnvToolsExt
+#	CXX = nvcc
+#	CUFLAGS = -std=c++11 -m64 --restrict $(NV_ARCH) #-rdc=true
+#	CXXFLAGS += --restrict $(NV_ARCH) -x=cu
+#	CXXFLAGS += $(if $(templates),-D__TEMPLATES__)
+#	CUDA_INC = -I$(CUDA_DIR)/samples/common/inc
+#	CXXFLAGS += --expt-extended-lambda
+	CUDA_LIBS = -lcuda -lcudart -lcudadevrt -lnvToolsExt
 endif
 
 # all, targets & laghos ********************************************************
-all:;@$(MAKE) -j $(CPU) laghos
 nv nvcc cuda:;$(MAKE) nvcc=1 templates=1 all
+all:;@$(MAKE) -j $(CPU) laghos
 
 # MPI **************************************************************************
 MPI_INC = -I$(MPI_HOME)/include 
+MPI_LIB = -L$(MPI_HOME)/lib -lmpi
 
 # LAGHOS FLAGS *****************************************************************
 LAGHOS_FLAGS = $(CPPFLAGS) $(CXXFLAGS) $(MFEM_INCFLAGS) \
-					$(CUB_INC) $(MPI_INC) $(RAJA_INC) $(CUDA_INC) $(MPI_INC)
-LAGHOS_LIBS = $(MFEM_LIBS) $(RAJA_LIBS) $(CUDA_LIBS) -ldl 
+					$(CUB_INC) $(MPI_INC) $(RAJA_INC)
+LAGHOS_LIBS = $(MFEM_LIBS) $(MPI_LIB) $(RAJA_LIBS) $(CUDA_LIBS) -ldl 
 
 ifeq ($(LAGHOS_DEBUG),YES)
    LAGHOS_FLAGS += -DLAGHOS_DEBUG
@@ -186,7 +186,7 @@ laghos:	$(OBJECT_FILES) $(OBJECT_KERNELS) $(CONFIG_MK) $(MFEM_LIB_FILE)
 	$(MFEM_CXX) -o laghos $(OBJECT_FILES) $(OBJECT_KERNELS) $(LIBS)
 
 # go ***************************************************************************
-go:;@./laghos -cfl 0.1 -rs 0 -ng
+go:;@./laghos -cfl 0.1 -rs 0
 pgo:;@mpirun -n 2 -xterm -1! --tag-output --merge-stderr-to-stdout ./laghos -cfl 0.1 -rs 0
 
 ng:;@./laghos -cfl 0.1 -rs 0 -ng
@@ -210,7 +210,7 @@ $(OBJECT_KERNELS): override MFEM_DIR = $(MFEM_DIR2)
 
 #rtc:;@echo OBJECT_KERNELS=$(OBJECT_KERNELS)
 $(OBJECT_KERNELS): %.o: %.cpp makefile
-	$(OKRTC) $(CCC) -o $(@) -c -I$(realpath $(dir $(<))) $(<)
+	$(OKRTC) $(CCC) -o $(@) -c $(CUB_INC) $(MPI_INC) $(RAJA_INC) -I$(realpath $(dir $(<))) $(<)
 
 MFEM_TESTS = laghos
 include $(TEST_MK)
