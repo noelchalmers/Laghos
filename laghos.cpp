@@ -243,20 +243,8 @@ int main(int argc, char *argv[])
    delete mesh;
 
    if (engine){
-      SharedPtr<Engine> kernels(engine=new mfem::kernels::Engine(MPI_COMM_WORLD,"cpu"));
+      SharedPtr<Engine> kernels(engine=new mfem::kernels::Engine(mpi,"gpu"));
       pmesh->SetEngine(*kernels);
-      kernels::config::Get().Setup(mpi.WorldRank(),mpi.WorldSize(),
-                                   true,  // cuda
-                                   false, // CG on device
-                                   false, // uvm
-                                   false, // aware
-                                   false, // share
-                                   false, // occa
-                                   false, // hcpo
-                                   false, // sync
-                                   false, // dot
-                                   rp_levels);
-
    }
    
    // Refine the mesh further in parallel to increase the resolution.
