@@ -132,7 +132,8 @@ public:
                            ParFiniteElementSpace &l2_fes,
                            Array<int> &essential_tdofs, ParGridFunction &rho0,
                            int source_type_, double cfl_,
-                           Coefficient *material_, bool visc, bool pa, bool engine_,
+                           Coefficient *material_, bool visc, bool pa,
+                           mfem::kernels::Engine *engine_,
                            double cgt, int cgiter);
 
    // Solve for dx_dt, dv_dt and de_dt.

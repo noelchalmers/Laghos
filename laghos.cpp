@@ -87,7 +87,7 @@ int main(int argc, char *argv[])
    int cg_max_iter = 300;
    int max_tsteps = -1;
    bool p_assembly = true;
-   bool engine = false;
+   mfem::kernels::Engine *engine = NULL;
    bool visualization = false;
    int vis_steps = 5;
    bool visit = false;
@@ -122,7 +122,7 @@ int main(int argc, char *argv[])
    args.AddOption(&p_assembly, "-pa", "--partial-assembly", "-fa",
                   "--full-assembly",
                   "Activate 1D tensor-based assembly (partial assembly).");
-   args.AddOption(&engine, "-ng", "--engine", "-no-ng", "--no-engine",
+   args.AddOption((bool*)&engine, "-ng", "--engine", "-no-ng", "--no-engine",
                   "Activate 1D tensor-based partial assembly through the engine.");
    args.AddOption(&visualization, "-vis", "--visualization", "-no-vis",
                   "--no-visualization",
@@ -243,8 +243,20 @@ int main(int argc, char *argv[])
    delete mesh;
 
    if (engine){
-      SharedPtr<Engine> kernels(new mfem::kernels::Engine(MPI_COMM_WORLD,"cpu"));
+      SharedPtr<Engine> kernels(engine=new mfem::kernels::Engine(MPI_COMM_WORLD,"cpu"));
       pmesh->SetEngine(*kernels);
+      kernels::config::Get().Setup(mpi.WorldRank(),mpi.WorldSize(),
+                                   true,  // cuda
+                                   false, // CG on device
+                                   false, // uvm
+                                   false, // aware
+                                   false, // share
+                                   false, // occa
+                                   false, // hcpo
+                                   false, // sync
+                                   false, // dot
+                                   rp_levels);
+
    }
    
    // Refine the mesh further in parallel to increase the resolution.
@@ -265,22 +277,38 @@ int main(int argc, char *argv[])
    ParFiniteElementSpace L2FESpace(pmesh, &L2FEC);
    ParFiniteElementSpace H1FESpace(pmesh, &H1FEC, pmesh->Dimension());
 
-   // Boundary conditions: all tests use v.n = 0 on the boundary, and we assume
+   dbg("Boundary conditions");//: all tests use v.n = 0 on the boundary, and we assume
    // that the boundaries are straight.
    Array<int> ess_tdofs;
+   if (engine) ess_tdofs.SetEngine(*engine);
    {
-      Array<int> ess_bdr(pmesh->bdr_attributes.Max()), tdofs1d;
+      const size_t bdr_att_max = pmesh->bdr_attributes.Max();
+      Array<int> ess_bdr(bdr_att_max), tdofs1d;
+      if (engine) {
+         dbg("engine ess_bdr.Resize");
+         ess_bdr.Resize(engine->MakeLayout(bdr_att_max));
+         dbg("engine ess_bdr.Pull");
+         ess_bdr.Pull(false);
+         dbg("tdofs1d.SetEngine");
+         tdofs1d.Resize(engine->MakeLayout(bdr_att_max));
+         //tdofs1d.SetEngine(*engine);
+         tdofs1d.Pull(false);
+      }
       for (int d = 0; d < pmesh->Dimension(); d++)
       {
          // Attributes 1/2/3 correspond to fixed-x/y/z boundaries, i.e., we must
          // enforce v_x/y/z = 0 for the velocity components.
+         dbg("dim %d",d);
          ess_bdr = 0; ess_bdr[d] = 1;
+         ess_bdr.Push();
+         dbg("GetEssentialTrueDofs");
          H1FESpace.GetEssentialTrueDofs(ess_bdr, tdofs1d, d);
+         dbg("Append");
          ess_tdofs.Append(tdofs1d);
       }
    }
 
-   // Define the explicit ODE solver used for time integration.
+   dbg("Define the explicit ODE solver used for time integration.");
    ODESolver *ode_solver = NULL;
    switch (ode_solver_type)
    {
@@ -316,7 +344,7 @@ int main(int argc, char *argv[])
    cout << "[" << myid << "] Number of kinematic (position, velocity) LOCAL dofs: " << Vsize_h1 << endl;
    cout << "[" << myid << "] Number of specific internal energy LOCAL dofs: " << Vsize_l2 << endl;
    
-   // The monolithic BlockVector stores unknown fields as:
+   dbg("The monolithic BlockVector stores unknown fields as:");
    // - 0 -> position
    // - 1 -> velocity
    // - 2 -> specific internal energy
@@ -327,37 +355,67 @@ int main(int argc, char *argv[])
    true_offset[2] = true_offset[1] + Vsize_h1;
    true_offset[3] = true_offset[2] + Vsize_l2;
    BlockVector S(true_offset);
+   if (engine) {
+      //S.Resize(engine->MakeLayout(2*Vsize_h1+Vsize_l2));
+      //S.Fill(0.0);
+      //S.Push();
+   }
 
-   // Define GridFunction objects for the position, velocity and specific
+   dbg("Define GridFunction objects for the position, velocity and specific");
    // internal energy.  There is no function for the density, as we can always
    // compute the density values given the current mesh position, using the
    // property of pointwise mass conservation.
    ParGridFunction x_gf, v_gf, e_gf;
-   x_gf.MakeRef(&H1FESpace, S, true_offset[0]);
-   v_gf.MakeRef(&H1FESpace, S, true_offset[1]);
-   e_gf.MakeRef(&L2FESpace, S, true_offset[2]);
+   if (engine){
+      //x_gf.Resize(engine->MakeLayout(Vsize_h1));
+      //v_gf.Resize(engine->MakeLayout(Vsize_h1));
+      //e_gf.Resize(engine->MakeLayout(Vsize_l2));
+   }
+   dbg("x_gf");
+   x_gf.MakeRef(&H1FESpace, S, true_offset[0]); //if (engine) x_gf.Pull(false);
+   dbg("v_gf");
+   v_gf.MakeRef(&H1FESpace, S, true_offset[1]); //if (engine) v_gf.Push();
+   dbg("e_gf");
+   e_gf.MakeRef(&L2FESpace, S, true_offset[2]); //if (engine) e_gf.Push();
 
-   // Initialize x_gf using the starting mesh coordinates. This also links the
+   dbg("Initialize x_gf using the starting mesh coordinates");//. This also links the
    // mesh positions to the values in x_gf.
    pmesh->SetNodalGridFunction(&x_gf);
+   //dbg("x_gf.Push();");   x_gf.Push();
 
-   // Initialize the velocity.
+   dbg("Initialize the velocity.");
    VectorFunctionCoefficient v_coeff(pmesh->Dimension(), v0);
    v_gf.ProjectCoefficient(v_coeff);
 
-   // Initialize density and specific internal energy values. We interpolate in
+   dbg("Initialize density and specific internal energy values. We interpolate in");
    // a non-positive basis to get the correct values at the dofs.  Then we do an
    // L2 projection to the positive basis in which we actually compute. The goal
    // is to get a high-order representation of the initial condition. Note that
    // this density is a temporary function and it will not be updated during the
    // time evolution.
    ParGridFunction rho(&L2FESpace);
+   dbg("rho size=%d",rho.Size());
    FunctionCoefficient rho_coeff(hydrodynamics::rho0);
+   dbg("L2_FECollection");
    L2_FECollection l2_fec(order_e, pmesh->Dimension());
+   dbg("ParFiniteElementSpace l2_fes");
    ParFiniteElementSpace l2_fes(pmesh, &l2_fec);
+   
+   dbg("ParGridFunction l2_rho");
    ParGridFunction l2_rho(&l2_fes), l2_e(&l2_fes);
+   dbg("l2_rho size=%d",l2_rho.Size());
+   if (engine) l2_rho.Pull();   
+   dbg("ProjectCoefficient l2_rho");
    l2_rho.ProjectCoefficient(rho_coeff);
+   if (engine) l2_rho.Push();   
+
+   dbg("ProjectGridFunction rho");
+   if (engine) rho.Pull();   
    rho.ProjectGridFunction(l2_rho);
+   if (engine) rho.Push();   
+
+   dbg("Energy ProjectCoefficient");
+   if (engine) l2_e.Pull();   
    if (problem == 1)
    {
       // For the Sedov test, we use a delta function at the origin.
@@ -369,19 +427,23 @@ int main(int argc, char *argv[])
       FunctionCoefficient e_coeff(e0);
       l2_e.ProjectCoefficient(e_coeff);
    }
+   if (engine) l2_e.Push();
+   dbg("e_gf.ProjectGridFunction(l2_e);");
    e_gf.ProjectGridFunction(l2_e);
 
-   // Piecewise constant ideal gas coefficient over the Lagrangian mesh. The
+   dbg("Piecewise constant ideal gas coefficient over the Lagrangian mesh.");// The
    // gamma values are projected on a function that stays constant on the moving
    // mesh.
    L2_FECollection mat_fec(0, pmesh->Dimension());
    ParFiniteElementSpace mat_fes(pmesh, &mat_fec);
    ParGridFunction mat_gf(&mat_fes);
    FunctionCoefficient mat_coeff(hydrodynamics::gamma);
+   if (engine) mat_gf.Pull();
    mat_gf.ProjectCoefficient(mat_coeff);
+   if (engine) mat_gf.Push();
    GridFunctionCoefficient *mat_gf_coeff = new GridFunctionCoefficient(&mat_gf);
 
-   // Additional details, depending on the problem.
+   dbg("Additional details, depending on the problem.");
    int source = 0; bool visc = false;
    switch (problem)
    {
@@ -393,10 +455,12 @@ int main(int argc, char *argv[])
       default: MFEM_ABORT("Wrong problem specification!");
    }
 
+   dbg("LagrangianHydroOperator");
    LagrangianHydroOperator oper(S.Size(), H1FESpace, L2FESpace,
                                 ess_tdofs, rho, source, cfl, mat_gf_coeff,
                                 visc, p_assembly, engine, cg_tol, cg_max_iter);
-
+   //assert(false);
+   
    socketstream vis_rho, vis_v, vis_e;
    char vishost[] = "localhost";
    int  visport   = 19916;
@@ -440,7 +504,7 @@ int main(int argc, char *argv[])
       visit_dc.Save();
    }
 
-   // Perform time-integration (looping over the time iterations, ti, with a
+   dbg("Perform time-integration");// (looping over the time iterations, ti, with a
    // time-step dt). The object oper is of type LagrangianHydroOperator that
    // defines the Mult() method that used by the time integrators.
    ode_solver->Init(oper);

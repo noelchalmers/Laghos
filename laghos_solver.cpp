@@ -82,7 +82,8 @@ LagrangianHydroOperator::LagrangianHydroOperator(int size,
                                                  ParGridFunction &rho0,
                                                  int source_type_, double cfl_,
                                                  Coefficient *material_,
-                                                 bool visc, bool pa, bool engine_,
+                                                 bool visc, bool pa,
+                                                 mfem::kernels::Engine *engine_,
                                                  double cgt, int cgiter) :
      TimeDependentOperator(size),
      H1FESpace(h1_fes), L2FESpace(l2_fes),
@@ -111,18 +112,21 @@ LagrangianHydroOperator::LagrangianHydroOperator(int size,
      locEMassPA(&quad_data, l2_fes),
      locCG(), timer()
 {
+   push();
    GridFunctionCoefficient rho_coeff(&rho0);
 
-   // Standard local assembly and inversion for energy mass matrices.
-   DenseMatrix Me(l2dofs_cnt);
-   DenseMatrixInverse inv(&Me);
-   MassIntegrator mi(rho_coeff, &integ_rule);
-   for (int i = 0; i < nzones; i++)
-   {
-      mi.AssembleElementMatrix(*l2_fes.GetFE(i),
-                               *l2_fes.GetElementTransformation(i), Me);
-      inv.Factor();
-      inv.GetInverseMatrix(Me_inv(i));
+   if (!p_assembly){
+      // Standard local assembly and inversion for energy mass matrices.
+      DenseMatrix Me(l2dofs_cnt);
+      DenseMatrixInverse inv(&Me);
+      MassIntegrator mi(rho_coeff, &integ_rule);
+      for (int i = 0; i < nzones; i++)
+      {
+         mi.AssembleElementMatrix(*l2_fes.GetFE(i),
+                                  *l2_fes.GetElementTransformation(i), Me);
+         inv.Factor();
+         inv.GetInverseMatrix(Me_inv(i));
+      }
    }
 
    // Standard assembly for the velocity mass matrix.
@@ -153,8 +157,25 @@ LagrangianHydroOperator::LagrangianHydroOperator(int size,
                                            integ_rule.IntPoint(q).weight;
       }
    }
+   
+   if (engine){
+      dbg("Jac0inv UseExternalData");
+      const int ji_isz = quad_data.Jac0inv.SizeI();
+      const int ji_jsz = quad_data.Jac0inv.SizeJ();
+      const int ji_ksz = quad_data.Jac0inv.SizeK();
+      double *ji_ext_data = (double*)mfem::kernels::kmalloc<double>::operator new(ji_isz*ji_jsz*ji_ksz);
+      mfem::kernels::kmemcpy::rHtoD(ji_ext_data, quad_data.Jac0inv.Data(), ji_isz*ji_jsz*ji_ksz);
+      quad_data.Jac0inv.UseExternalData(ji_ext_data, ji_isz,ji_jsz,ji_ksz);
+      /*
+      dbg("stressJinvT UseExternalData");
+      const int si_isz = qd->stressJinvT.SizeI();
+      const int si_jsz = qd->stressJinvT.SizeJ();
+      const int si_ksz = qd->stressJinvT.SizeK();
+      double *si_ext_data = (double*)mfem::kernels::kmalloc<double>::operator new(si_isz*si_jsz*si_ksz);
+      qd->stressJinvT.UseExternalData(si_ext_data, si_isz,si_jsz,si_ksz);*/
+   }
 
-   // Initial local mesh size (assumes all mesh elements are of the same type).
+   dbg("Initial local mesh size");// (assumes all mesh elements are of the same type).
    double loc_area = 0.0, glob_area;
    int loc_z_cnt = nzones, glob_z_cnt;
    ParMesh *pm = H1FESpace.GetParMesh();
@@ -214,6 +235,7 @@ LagrangianHydroOperator::LagrangianHydroOperator(int size,
    locCG.SetAbsTol(1e-8 * numeric_limits<double>::epsilon());
    locCG.SetMaxIter(200);
    locCG.SetPrintLevel(0);
+   dbg("done");
 }
 
 void LagrangianHydroOperator::Mult(const Vector &S, Vector &dS_dt) const
@@ -336,28 +358,14 @@ void LagrangianHydroOperator::Mult(const Vector &S, Vector &dS_dt) const
             kVMassPA->SetEssentialTrueDofs(c_tdofs);
             kVMassPA->EliminateRHS(kB_c);
             //dbg("kB:\n"); kB.Print();assert(__FILE__&&__LINE__&&false);
-            //0 -5.55112e-17 0 0 -4.85723e-17 0 0 -6.93889e-17
-            //0 0.0378933 -5.55112e-17 0.0757866 0 -0.0378933 0 -0.0757866
-            //-5.55112e-17 0.0378933 0 0 -0.0378933 0.151573 -0.151573 0.151573
-            //-0.151573
 
             // *****************************************************************
             timer.sw_cgH1.Start();
-//#warning kB=0.0
-            //dbg("\033[32;1;7m**** kB=0.0 ****\033[m");
-            //kB = 0.0;
-            //kB.Fill(0.0);
             dbg("\033[32;1;7m**** Mult ****\033[m");
             cg.Mult(kB_c, kX_c); // linalg/solver.cpp
-//#warning kX=1.0
-            //dbg("\033[31;1;7m**** kX=1.0 ****\033[m");
-            //kX=1.0;
-            //kX.Fill(1.0);
+
             dbg("\033[31;1m*****************************************************************\033[m\n");
             //dbg("kX:\n"); kX.Print();assert(__FILE__&&__LINE__&&false);
-            // 0 -4.83134e-15 0 0 -3.82263e-15 0 0 -6.40967e-15
-            // 0 1.7052 -4.77645e-15 1.7052 0 -1.7052 0 -1.7052
-            // -4.996e-15 1.7052 0 0 -1.7052 1.7052 -1.7052 1.7052 -1.7052 
 
             // then den differs because DOT differs: we don't have all components
 
@@ -372,13 +380,6 @@ void LagrangianHydroOperator::Mult(const Vector &S, Vector &dS_dt) const
             dbg("memcpy of %d bytes",size*sizeof(double));            
             memcpy(dv.GetData()+c*size, dv_c.GetData(), size*sizeof(double));            
             //dbg("dv:\n"); dv.Print();assert(__FILE__&&__LINE__&&false);
-            //0 -4.83134e-15 0 0 -3.82263e-15 0 0 -6.40967e-15
-            //0 1.7052 -4.77645e-15 1.7052 0 -1.7052 0 -1.7052
-            //-4.996e-15 1.7052 0 0 -1.7052 1.7052 -1.7052 1.7052
-            //-1.7052 0 0 0 0 0 0 0
-            //0 0 0 0 0 0 0 0
-            //0 0 0 0 0 0 0 0
-            //0 0
          }
       } // engine
    }

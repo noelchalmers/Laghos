@@ -190,6 +190,7 @@ go:;@./laghos -cfl 0.1 -rs 0
 pgo:;@mpirun -n 2 -xterm -1! --tag-output --merge-stderr-to-stdout ./laghos -cfl 0.1 -rs 0
 
 ng:;@./laghos -cfl 0.1 -rs 0 -ng
+dng:;@DBG=1 cuda-gdb --args ./laghos -cfl 0.1 -rs 0 -ng
 vng:;@valgrind ./laghos -cfl 0.1 -rs 0 -ms 1 -ng
 png:;@mpirun -n 3 ./laghos -cfl 0.1 -rs 2 -ng
 #png:;@mpirun -n 2 --tag-output --merge-stderr-to-stdout ./laghos -cfl 0.1 -rs 0 -ng
