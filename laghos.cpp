@@ -268,7 +268,7 @@ int main(int argc, char *argv[])
    dbg("Boundary conditions");//: all tests use v.n = 0 on the boundary, and we assume
    // that the boundaries are straight.
    Array<int> ess_tdofs;
-   if (engine) ess_tdofs.SetEngine(*engine);
+   //if (engine) ess_tdofs.SetEngine(*engine);
    {
       const size_t bdr_att_max = pmesh->bdr_attributes.Max();
       Array<int> ess_bdr(bdr_att_max), tdofs1d;
@@ -447,7 +447,6 @@ int main(int argc, char *argv[])
    LagrangianHydroOperator oper(S.Size(), H1FESpace, L2FESpace,
                                 ess_tdofs, rho, source, cfl, mat_gf_coeff,
                                 visc, p_assembly, engine, cg_tol, cg_max_iter);
-   //assert(false);
    
    socketstream vis_rho, vis_v, vis_e;
    char vishost[] = "localhost";
@@ -496,11 +495,16 @@ int main(int argc, char *argv[])
    // time-step dt). The object oper is of type LagrangianHydroOperator that
    // defines the Mult() method that used by the time integrators.
    ode_solver->Init(oper);
+   dbg("ResetTimeStepEstimate");
    oper.ResetTimeStepEstimate();
+   dbg("GetTimeStepEstimate");
    double t = 0.0, dt = oper.GetTimeStepEstimate(S), t_old;
+   dbg("dt=%f",dt);
    bool last_step = false;
    int steps = 0;
+   dbg("BlockVector S_old(S);");
    BlockVector S_old(S);
+   dbg("time step for-loop");
    for (int ti = 1; !last_step; ti++)
    {
       if (t + dt >= t_final)
@@ -510,16 +514,19 @@ int main(int argc, char *argv[])
       }
       if (steps == max_tsteps) { last_step = true; }
 
+      dbg("S_old = S;");
       S_old = S;
       t_old = t;
+      dbg("ResetTimeStepEstimate");
       oper.ResetTimeStepEstimate();
 
       // S is the vector of dofs, t is the current time, and dt is the time step
       // to advance.
+      dbg("Step");
       ode_solver->Step(S, t, dt);
       steps++;
 
-      // Adaptive time step control.
+      dbg("Adaptive time step control.");
       const double dt_est = oper.GetTimeStepEstimate(S);
       if (dt_est < dt)
       {

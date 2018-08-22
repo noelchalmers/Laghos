@@ -46,14 +46,21 @@ kMassPAOperator::kMassPAOperator(QuadratureData *qd_,
 // *****************************************************************************
 void kMassPAOperator::Setup()
 {
-   push(Wheat);
+   dbg("engine");
    const mfem::Engine &engine = fes.GetMesh()->GetEngine();
+   dbg("massInteg");
    kernels::KernelsMassIntegrator &massInteg = *(new kernels::KernelsMassIntegrator(engine));
+   dbg("SetIntegrationRule");
    massInteg.SetIntegrationRule(ir);
+   dbg("SetOperator");
    massInteg.SetOperator(quad_data->rho0DetJ0w);
+   dbg("AddDomainIntegrator");
    bilinearForm->AddDomainIntegrator(&massInteg);
+   dbg("Assemble");
    bilinearForm->Assemble();
-   bilinearForm->FormOperator(Array<int>(), massOperator);
+   dbg("FormOperator");
+   bilinearForm->FormOperator(mfem::Array<int>(), massOperator);
+   dbg("done");
    pop();
 }
 
@@ -67,12 +74,20 @@ void kMassPAOperator::SetEssentialTrueDofs(mfem::Array<int> &dofs)
    if (ess_tdofs.Size()==0){
       dbg("ess_tdofs.Size()==0");
 #ifdef MFEM_USE_MPI
+      dbg("MPI_Allreduce");
       int global_ess_tdofs_count;
       const MPI_Comm comm = fes.GetParMesh()->GetComm();
       MPI_Allreduce(&ess_tdofs_count,&global_ess_tdofs_count,
                     1, MPI_INT, MPI_SUM, comm);
       assert(global_ess_tdofs_count>0);
-      ess_tdofs.Resize(global_ess_tdofs_count);
+      
+      dbg("ess_tdofs.Resize");      
+      //ess_tdofs.Resize(global_ess_tdofs_count);
+      const mfem::Engine &engine = fes.GetMesh()->GetEngine();
+      ess_tdofs.Resize(engine.MakeLayout(global_ess_tdofs_count));
+      ess_tdofs.Fill(0);
+      dbg("ess_tdofs.Pull(false)");
+      ess_tdofs.Pull(false);
 #else
       assert(ess_tdofs_count>0);
       ess_tdofs.Resize(ess_tdofs_count);
@@ -85,16 +100,24 @@ void kMassPAOperator::SetEssentialTrueDofs(mfem::Array<int> &dofs)
 
    assert(ess_tdofs>0);
   
-   if (ess_tdofs_count == 0) { pop(); return; }
+   if (ess_tdofs_count == 0) { 
+      dbg("(0) done");
+      pop();
+      return;
+   }
   
    {
       assert(ess_tdofs_count>0);
       assert(dofs.GetData());
-      kernels::kmemcpy::rHtoD((void*)ess_tdofs.GetData(),
+      //memcpy((void*)ess_tdofs.GetData(), dofs.GetData(), ess_tdofs_count*sizeof(int));
+      int *d_ess_tdofs = (int*) mfem::kernels::kmalloc<int>::operator new(ess_tdofs_count);
+      kernels::kmemcpy::rHtoD((void*)d_ess_tdofs,
                               dofs.GetData(),
                               ess_tdofs_count*sizeof(int));
+      ess_tdofs.MakeRef(d_ess_tdofs,ess_tdofs_count);
       pop();
    }
+   dbg("done");
    pop();
 }
 
@@ -110,9 +133,11 @@ void kMassPAOperator::EliminateRHS(mfem::Vector &b)
 }
 
 // *************************************************************************
-void kMassPAOperator::Mult(const mfem::Vector &x, mfem::Vector &y) const
+void kMassPAOperator::Mult(const mfem::Vector &x,
+                                 mfem::Vector &y) const
 {
    push();
+   dbg("mx");
 
    mfem::Vector mx(fes.GetTrueVLayout());
    mx.PushData(x.GetData());
@@ -122,16 +147,22 @@ void kMassPAOperator::Mult(const mfem::Vector &x, mfem::Vector &y) const
 
    if (ess_tdofs_count)
    {
+      dbg("kx.SetSubVector");
       kx.SetSubVector(ess_tdofs, 0.0, ess_tdofs_count);
    }
    
-   massOperator->Mult(mx, y);
-   
+   dbg("massOperator->Mult(mx, y);");
+   //massOperator->Mult(mx, y);
+   massOperator->Mult(x, y);
+   //while(true);
+   //assert(false);
+
    if (ess_tdofs_count)
    {
+      dbg("ky.SetSubVector");
       ky.SetSubVector(ess_tdofs, 0.0, ess_tdofs_count);
    }
-      
+   dbg("done");
    pop();
 }
 
