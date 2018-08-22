@@ -138,11 +138,12 @@ void kMassPAOperator::Mult(const mfem::Vector &x,
 {
    push();
    dbg("mx");
-
+   x.Pull();
    mfem::Vector mx(fes.GetTrueVLayout());
    mx.PushData(x.GetData());
-   
+   dbg("kx");
    kernels::Vector &kx = mx.Get_PVector()->As<kernels::Vector>();
+   dbg("ky");
    kernels::Vector &ky = y.Get_PVector()->As<kernels::Vector>();
 
    if (ess_tdofs_count)
@@ -153,7 +154,7 @@ void kMassPAOperator::Mult(const mfem::Vector &x,
    
    dbg("massOperator->Mult(mx, y);");
    //massOperator->Mult(mx, y);
-   massOperator->Mult(x, y);
+   massOperator->Mult(mx, y);
    //while(true);
    //assert(false);
 
@@ -162,6 +163,7 @@ void kMassPAOperator::Mult(const mfem::Vector &x,
       dbg("ky.SetSubVector");
       ky.SetSubVector(ess_tdofs, 0.0, ess_tdofs_count);
    }
+   y.Pull();
    dbg("done");
    pop();
 }

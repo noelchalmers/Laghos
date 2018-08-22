@@ -82,8 +82,10 @@ void rForceMultTranspose2D(
       for (int qy = 0; qy < NUM_QUAD_1D; ++qy) {
         for (int qx = 0; qx < NUM_QUAD_1D; ++qx) {
           vStress[ijN(qx,qy,NUM_QUAD_1D)] +=
-            ((v_Dxy[ijN(qx,qy,NUM_QUAD_1D)] * stressJinvT[ijklmNM(0,c,qx,qy,el,NUM_DIM,NUM_QUAD_1D)]) +
-             (v_xDy[ijN(qx,qy,NUM_QUAD_1D)] * stressJinvT[ijklmNM(1,c,qx,qy,el,NUM_DIM,NUM_QUAD_1D)]));
+            ((v_Dxy[ijN(qx,qy,NUM_QUAD_1D)] *
+              stressJinvT[__ijklmNM(0,c,qx,qy,el,NUM_DIM,NUM_QUAD_1D,numElements)]) +
+             (v_xDy[ijN(qx,qy,NUM_QUAD_1D)] *
+              stressJinvT[__ijklmNM(1,c,qx,qy,el,NUM_DIM,NUM_QUAD_1D,numElements)]));
         }
       }
     }

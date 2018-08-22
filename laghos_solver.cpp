@@ -164,7 +164,9 @@ LagrangianHydroOperator::LagrangianHydroOperator(int size,
       const int ji_jsz = quad_data.Jac0inv.SizeJ();
       const int ji_ksz = quad_data.Jac0inv.SizeK();
       double *ji_ext_data = (double*)mfem::kernels::kmalloc<double>::operator new(ji_isz*ji_jsz*ji_ksz);
-      mfem::kernels::kmemcpy::rHtoD(ji_ext_data, quad_data.Jac0inv.Data(), ji_isz*ji_jsz*ji_ksz);
+      mfem::kernels::kmemcpy::rHtoD(ji_ext_data,
+                                    quad_data.Jac0inv.Data(),
+                                    ji_isz*ji_jsz*ji_ksz*sizeof(double));
       quad_data.Jac0inv.UseExternalData(ji_ext_data, ji_isz,ji_jsz,ji_ksz);
       
       dbg("stressJinvT UseExternalData");
@@ -172,7 +174,9 @@ LagrangianHydroOperator::LagrangianHydroOperator(int size,
       const int si_jsz = quad_data.stressJinvT.SizeJ();
       const int si_ksz = quad_data.stressJinvT.SizeK();
       double *si_ext_data = (double*)mfem::kernels::kmalloc<double>::operator new(si_isz*si_jsz*si_ksz);
-      mfem::kernels::kmemcpy::rHtoD(si_ext_data, quad_data.stressJinvT.Data(), si_isz*si_jsz*si_ksz);
+      mfem::kernels::kmemcpy::rHtoD(si_ext_data,
+                                    quad_data.stressJinvT.Data(),
+                                    si_isz*si_jsz*si_ksz*sizeof(double));
       quad_data.d_stressJinvT.UseExternalData(si_ext_data, si_isz,si_jsz,si_ksz);
    }
 
@@ -242,6 +246,7 @@ LagrangianHydroOperator::LagrangianHydroOperator(int size,
 void LagrangianHydroOperator::Mult(const Vector &S, Vector &dS_dt) const
 {
    dS_dt = 0.0;
+   //S.Pull();dbg("S:\n"); S.Print();assert(__FILE__&&__LINE__&&false);
 
    dbg("Make sure that the mesh positions correspond to the ones in S.");// This is
    // needed only because some mfem time integrators don't update the solution
@@ -301,6 +306,9 @@ void LagrangianHydroOperator::Mult(const Vector &S, Vector &dS_dt) const
       dbg("ForcePA->Mult");
       timer.sw_force.Start();
       ForcePA->Mult(one, rhs);
+      //one.Pull();dbg("one:\n"); one.Print();assert(__FILE__&&__LINE__&&false);
+      //rhs.Pull();dbg("rhs:\n"); rhs.Print();assert(__FILE__&&__LINE__&&false);
+
       timer.sw_force.Stop();
       dbg("rhs.Pull();");
       rhs.Pull();
@@ -345,10 +353,12 @@ void LagrangianHydroOperator::Mult(const Vector &S, Vector &dS_dt) const
             dbg("\033[31;1mV component #%d",c);
             mfem::Vector rhs_c(H1compFESpace.GetVLayout());
             rhs_c.PushData(rhs.GetData()+c*size);
-            
+            //rhs_c.Pull();dbg("rhs_c:\n"); rhs_c.Print();assert(__FILE__&&__LINE__&&false);
+
             mfem::Vector dv_c(H1compFESpace.GetVLayout());
             dv_c.PushData(dv.GetData()+c*size);            
- 
+            //dv_c.Pull();dbg("dv_c:\n"); dv_c.Print();assert(__FILE__&&__LINE__&&false);
+
             mfem::Vector kB_c(H1compFESpace.GetTrueVLayout());
             mfem::Vector kX_c(H1compFESpace.GetTrueVLayout());
       
@@ -366,12 +376,12 @@ void LagrangianHydroOperator::Mult(const Vector &S, Vector &dS_dt) const
             dbg("GetProlongationOperator MultTranspose");
             H1compFESpace.Get_PFESpace()->As<kernels::kFiniteElementSpace>().
                GetProlongationOperator()->MultTranspose(rhs_c, kB_c);
-            //dbg("kB_c:\n"); kB_c.Print();assert(__FILE__&&__LINE__&&false);
+            kB_c.Pull();//dbg("kB_c:\n"); kB_c.Print();assert(__FILE__&&__LINE__&&false);
             
             dbg("GetRestrictionOperator Mult");
             H1compFESpace.Get_PFESpace()->As<kernels::kFiniteElementSpace>().
                GetRestrictionOperator()->Mult(dv_c, kX_c);
-            kX_c.Pull();
+            //kX_c.Pull();
             //dbg("kX_c:\n"); kX_c.Print();assert(__FILE__&&__LINE__&&false);
 
             dbg("kVMassPA->SetEssentialTrueDofs(c_tdofs)");
@@ -379,17 +389,16 @@ void LagrangianHydroOperator::Mult(const Vector &S, Vector &dS_dt) const
             
             dbg("kVMassPA->EliminateRHS(kB_c)");
             kVMassPA->EliminateRHS(kB_c);
-            //dbg("kB_c:\n"); kB_c.Print();assert(__FILE__&&__LINE__&&false);
+            //kB_c.Pull();dbg("kB_c:\n"); kB_c.Print();assert(__FILE__&&__LINE__&&false);
 
             // *****************************************************************
             timer.sw_cgH1.Start();
             dbg("\033[32;1;7m**** Mult ****\033[m");
             cg.Mult(kB_c, kX_c); // linalg/solver.cpp
-            //kX_c.Pull();
             
             dbg("\033[31;1m*****************************************************************\033[m\n");
-            //dbg("kX_c:\n"); kX_c.Print();assert(__FILE__&&__LINE__&&false);
-
+            //kX_c.Pull(); dbg("kX_c:\n"); kX_c.Print();assert(__FILE__&&__LINE__&&false);
+ 
             // then den differs because DOT differs: we don't have all components
 
             // *****************************************************************
@@ -397,8 +406,7 @@ void LagrangianHydroOperator::Mult(const Vector &S, Vector &dS_dt) const
             timer.H1cg_iter += cg.GetNumIterations();
             H1compFESpace.Get_PFESpace()->As<kernels::kFiniteElementSpace>().
                GetProlongationOperator()->Mult(kX_c, dv_c);
-            //dv_c.Pull();
-            //dbg("dv_c:\n"); dv_c.Print();assert(__FILE__&&__LINE__&&false);
+            //dv_c.Pull(); dbg("dv_c:\n"); dv_c.Print();assert(__FILE__&&__LINE__&&false);
             
             dbg("memcpy of %d bytes",size*sizeof(double));            
             memcpy(dv.GetData()+c*size, dv_c.GetData(), size*sizeof(double));            
@@ -454,8 +462,10 @@ void LagrangianHydroOperator::Mult(const Vector &S, Vector &dS_dt) const
       timer.sw_force.Start();
       if (!engine) ForcePA->MultTranspose(v, e_rhs);
       else {
+         //kv.Pull();dbg("kv:\n"); kv.Print();assert(__FILE__&&__LINE__&&false);
          ForcePA->MultTranspose(kv, e_rhs);
          e_rhs.Pull();
+         //dbg("e_rhs:\n"); e_rhs.Print();assert(__FILE__&&__LINE__&&false);
       }
       timer.sw_force.Stop();
       if (e_source) { e_rhs += *e_source; }
