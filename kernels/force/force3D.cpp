@@ -107,9 +107,9 @@ void rForceMult3D(
           }
           for (int qx = 0; qx < NUM_QUAD_1D; ++qx) {
             const double r_e = e_xyz[ijkN(qx,qy,qz,NUM_QUAD_1D)];
-            const double esx = r_e * stressJinvT[ijklmnNM(0,c,qx,qy,qz,el,NUM_DIM,NUM_QUAD_1D)];
-            const double esy = r_e * stressJinvT[ijklmnNM(1,c,qx,qy,qz,el,NUM_DIM,NUM_QUAD_1D)];
-            const double esz = r_e * stressJinvT[ijklmnNM(2,c,qx,qy,qz,el,NUM_DIM,NUM_QUAD_1D)];
+            const double esx = r_e * stressJinvT[__ijxyzeDQE(0,c,qx,qy,qz,el,NUM_DIM,NUM_QUAD_1D,numElements)];
+            const double esy = r_e * stressJinvT[__ijxyzeDQE(1,c,qx,qy,qz,el,NUM_DIM,NUM_QUAD_1D,numElements)];
+            const double esz = r_e * stressJinvT[__ijxyzeDQE(2,c,qx,qy,qz,el,NUM_DIM,NUM_QUAD_1D,numElements)];
             for (int dx = 0; dx < H1_DOFS_1D; ++dx) {
               Dx_x[dx] += esx * H1QuadToDofD[ijN(dx,qx,H1_DOFS_1D)];
               x_y[dx]  += esy * H1QuadToDof[ijN(dx,qx,H1_DOFS_1D)];

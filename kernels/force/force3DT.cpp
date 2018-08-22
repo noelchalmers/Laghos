@@ -88,9 +88,9 @@ void rForceMultTranspose3D(
           for (int qy = 0; qy < NUM_QUAD_1D; ++qy) {
             for (int qx = 0; qx < NUM_QUAD_1D; ++qx) {
               vStress[ijkN(qx,qy,qz,NUM_QUAD_1D)] +=
-                ((Dxy_x[ijN(qx,qy,NUM_QUAD_1D)]*wz *stressJinvT[ijklmnNM(0,c,qx,qy,qz,el,NUM_DIM,NUM_QUAD_1D)]) +
-                 (xDy_y[ijN(qx,qy,NUM_QUAD_1D)]*wz *stressJinvT[ijklmnNM(1,c,qx,qy,qz,el,NUM_DIM,NUM_QUAD_1D)]) +
-                 (xy_z[ijN(qx,qy,NUM_QUAD_1D)] *wDz*stressJinvT[ijklmnNM(2,c,qx,qy,qz,el,NUM_DIM,NUM_QUAD_1D)]));
+                 ((Dxy_x[ijN(qx,qy,NUM_QUAD_1D)]*wz *stressJinvT[__ijxyzeDQE(0,c,qx,qy,qz,el,NUM_DIM,NUM_QUAD_1D,numElements)]) +
+                  (xDy_y[ijN(qx,qy,NUM_QUAD_1D)]*wz *stressJinvT[__ijxyzeDQE(1,c,qx,qy,qz,el,NUM_DIM,NUM_QUAD_1D,numElements)]) +
+                  (xy_z[ijN(qx,qy,NUM_QUAD_1D)] *wDz*stressJinvT[__ijxyzeDQE(2,c,qx,qy,qz,el,NUM_DIM,NUM_QUAD_1D,numElements)]));
             }
           }
         }

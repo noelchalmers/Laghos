@@ -243,7 +243,7 @@ int main(int argc, char *argv[])
    delete mesh;
 
    if (engine){
-      SharedPtr<Engine> kernels(engine=new mfem::kernels::Engine(mpi,"gpu"));
+      SharedPtr<Engine> kernels(engine=new mfem::kernels::Engine(&mpi,"gpu"));
       pmesh->SetEngine(*kernels);
    }
    
