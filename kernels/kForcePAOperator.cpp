@@ -73,23 +73,16 @@ void kForcePAOperator::Mult(const mfem::Vector &vecL2,
    kernels::Vector rVecH1 = vecH1.Get_PVector()->As<kernels::Vector>();
    dbg("GlobalToLocal");
    l2k.GlobalToLocal(rVecL2, rgVecL2);
-   //mfem::Vector mrgVecL2(rgVecL2); mrgVecL2.Pull(); dbg("mrgVecL2:\n"); mrgVecL2.Print();assert(__FILE__&&__LINE__&&false);
-
    dbg("rForceMult");
    const int si_isz = quad_data->stressJinvT.SizeI();
    const int si_jsz = quad_data->stressJinvT.SizeJ();
    const int si_ksz = quad_data->stressJinvT.SizeK();
    const int ijk = si_isz*si_jsz*si_ksz;
-   /*double *data = quad_data->stressJinvT.Data();
-   printf("\n");
-   for(int i=0;i<ijk;i++){
-      printf(" %f",data[i]);
-      }*/
-
+   dbg("\033[31;1mkmemcpy d_stressJinvT");
+#warning kmemcpy d_stressJinvT
    mfem::kernels::kmemcpy::rHtoD(quad_data->d_stressJinvT.Data(),
                                  quad_data->stressJinvT.Data(),
                                  ijk*sizeof(double));
-   
    rForceMult(dim,
               NUM_DOFS_1D,
               NUM_QUAD_1D,
@@ -102,10 +95,8 @@ void kForcePAOperator::Mult(const mfem::Vector &vecL2,
               quad_data->d_stressJinvT.Data(),
               (const double*)rgVecL2.KernelsMem().ptr(),
               (double*)rgVecH1.KernelsMem().ptr());
-   //mfem::Vector mrgVecH1(rgVecH1);mrgVecH1.Pull(); dbg("mrgVecH1:\n"); mrgVecH1.Print();assert(__FILE__&&__LINE__&&false);
    dbg("LocalToGlobal");
    h1k.LocalToGlobal(rgVecH1, rVecH1);
-   //vecH1.Pull(); dbg("vecH1:\n"); vecH1.Print();assert(__FILE__&&__LINE__&&false);
    pop();
 }
 

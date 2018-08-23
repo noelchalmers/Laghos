@@ -110,10 +110,19 @@ protected:
    mutable LocalMassPAOperator locEMassPA;
 
    // Linear solver for energy.
-   CGSolver locCG;
+   CGSolver CG_VMass,locCG;
 
    mutable TimingData timer;
-
+   
+   // Vectors & data we want to keep
+   const size_t VsizeL2;
+   const size_t VsizeH1;
+   mutable mfem::Vector v, e, rhs, B, X;
+   mutable mfem::Vector one; // const
+   mutable mfem::Vector e_rhs;
+   mutable mfem::Vector rhs_c, dv_c, kv;
+   //mutable mfem::Vector loc_rhs, loc_de;
+   
    virtual void ComputeMaterialProperties(int nvalues, const double gamma[],
                                           const double rho[], const double e[],
                                           double p[], double cs[]) const
