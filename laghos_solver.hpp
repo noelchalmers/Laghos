@@ -77,7 +77,7 @@ protected:
 
    const int dim, nzones, l2dofs_cnt, h1dofs_cnt, source_type;
    const double cfl;
-   const bool use_viscosity, p_assembly, engine;
+   const bool use_viscosity, p_assembly, has_engine;
    const double cg_rel_tol;
    const int cg_max_iter;
    Coefficient *material_pcf;
@@ -117,7 +117,7 @@ protected:
    // Vectors & data we want to keep
    const size_t VsizeL2;
    const size_t VsizeH1;
-   mutable mfem::Vector v, e, rhs, B, X;
+   mutable mfem::Vector x, v, e, rhs, B, X;
    mutable mfem::Vector one; // const
    mutable mfem::Vector e_rhs;
    mutable mfem::Vector rhs_c, dv_c, kv;
@@ -142,7 +142,6 @@ public:
                            Array<int> &essential_tdofs, ParGridFunction &rho0,
                            int source_type_, double cfl_,
                            Coefficient *material_, bool visc, bool pa,
-                           mfem::kernels::Engine *engine_,
                            double cgt, int cgiter);
 
    // Solve for dx_dt, dv_dt and de_dt.
