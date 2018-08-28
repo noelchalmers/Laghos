@@ -17,7 +17,7 @@
 # SETUP ************************************************************************
 CUB_DIR  ?= ./cub
 CUDA_DIR ?= /usr/local/cuda
-MFEM_DIR ?= $(HOME)/home/mfem/kernels
+MFEM_DIR ?= $(HOME)/home/mfem/kernels-gpu
 RAJA_DIR ?= $(HOME)/usr/local/raja/last
 MPI_HOME ?= $(HOME)/usr/local/openmpi/3.0.0
 #NV_ARCH ?= -arch=sm_60 #-gencode arch=compute_52,code=sm_52 -gencode arch=compute_60,code=sm_60
@@ -187,11 +187,13 @@ laghos:	$(OBJECT_FILES) $(OBJECT_KERNELS) $(CONFIG_MK) $(MFEM_LIB_FILE)
 
 # go ***************************************************************************
 go:;@./laghos -cfl 0.1 -rs 0
-pgo:;@mpirun -n 2 -xterm -1! --tag-output --merge-stderr-to-stdout ./laghos -cfl 0.1 -rs 0
+pgo:;@mpirun -n 2 ./laghos -cfl 0.1 -rs 0
+pgo2:;@DBG=1 mpirun -xterm -1! -n 2 ./laghos -cfl 0.1 -rs 0 -ng -ms 1 -cgt 0 -cgm 1
+#pgo:;@mpirun -n 2 -xterm -1! --tag-output --merge-stderr-to-stdout ./laghos -cfl 0.1 -rs 0
 
 ng:;@./laghos -cfl 0.1 -rs 0 -ng
 dng:;@cuda-gdb --args ./laghos -cfl 0.1 -rs 0 -ng #-cgt 0 -cgm 2
-mng:;cuda-memcheck ./laghos -cfl 0.1 -rs 0 -ng
+mng:;cuda-memcheck ./laghos -cfl 0.1 -rs 0 -ng -ms 1
 ddng:;@DBG=1 cuda-gdb --args ./laghos -cfl 0.1 -rs 0 -ng -cgt 0 -cgm 2
 
 ng1:;DBG=1 ./laghos -cfl 0.1 -rs 0 -ng -ms 1 -cgt 0 -cgm 1
@@ -200,7 +202,13 @@ mng2:;DBG=1 cuda-memcheck ./laghos -cfl 0.1 -rs 0 -ng -ms 1 -cgt 0 -cgm 2
 dng1:;DBG=1 cuda-gdb --args ./laghos -cfl 0.1 -rs 0 -ng -ms 1 -cgt 0 -cgm 1
 
 vng:;@valgrind ./laghos -cfl 0.1 -rs 0 -ms 1 -ng
-png:;@mpirun -n 3 ./laghos -cfl 0.1 -rs 2 -ng
+png1:;@mpirun -n 1 ./laghos -cfl 0.1 -ng
+png2:;@DBG=1 mpirun -xterm -1! -n 2 ./laghos -cfl 0.1 -rs 0 -ng -ms 1
+mpng2:;@DBG=1 mpirun -xterm -1! -n 2 cuda-memcheck ./laghos -cfl 0.1 -rs 0 -ng -ms 1 -cgt 0 -cgm 1
+vpng2:;@DBG=1 mpirun -xterm -1! -n 2 valgrind --leak-check=full --track-origins=yes ./laghos -cfl 0.1 -rs 0 -ng -ms 1 -cgt 0 -cgm 1
+
+png2d:;@DBG=1 mpirun -xterm -1! --merge-stderr-to-stdout -n 2 ./laghos -cfl 0.1 -ng
+vpng2d:;@DBG=1 mpirun -xterm -1! --merge-stderr-to-stdout -n 2 valgrind --leak-check=full --track-origins=yes ./laghos -cfl 0.1 -rs 2 -ng -ms 1
 #png:;@mpirun -n 2 --tag-output --merge-stderr-to-stdout ./laghos -cfl 0.1 -rs 0 -ng
 #png:;@mpirun -n 2 -xterm 1 ./laghos -cfl 0.1 -rs 0 -ng
 pngd:;DBG=1 mpirun -xterm -1! --merge-stderr-to-stdout -n 3 ./laghos -cfl 0.1 -rs 1 -ms 2 -ng
@@ -218,7 +226,7 @@ $(OBJECT_FILES): $(HEADER_FILES) $(CONFIG_MK)
 $(OBJECT_KERNELS): override MFEM_DIR = $(MFEM_DIR2)
 
 #rtc:;@echo OBJECT_KERNELS=$(OBJECT_KERNELS)
-$(OBJECT_KERNELS): %.o: %.cpp makefile
+$(OBJECT_KERNELS): %.o: %.cpp
 	$(OKRTC) $(CCC) -o $(@) -c $(CUB_INC) $(MPI_INC) $(RAJA_INC) -I$(realpath $(dir $(<))) $(<)
 
 MFEM_TESTS = laghos

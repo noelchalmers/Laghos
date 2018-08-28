@@ -411,7 +411,22 @@ void LagrangianHydroOperator::Mult(const Vector &S, Vector &dS_dt) const
             
             timer.sw_cgH1.Start();
             dbg("CG_VMass.Mult(B, X);");
+            //B.Pull();dbg("B:\n"); B.Print();assert(__FILE__ && __LINE__ && false);
+//0 -6.245e-17 0 0 -6.93889e-17 0 0.0757866 -1.11022e-16
+//0.0378933 0 -0.0757866 0 -0.0378933 0.151573 -0.151573
+// &
+//0 -5.55112e-17 0 0.0378933 -1.11022e-16 0 -0.0378933 0
+//0.151573 -0.151573 0 0 0 0 0
+            //B.Pull();B=1.0;B.Push();
             CG_VMass.Mult(B, X); // linalg/solver.cpp
+//0 -8.43076e-16 0 0 -9.36751e-16 0 1.02312 -1.4988e-15
+//0.511559 0 -1.02312 0 -0.511559 2.04624 -2.04624
+// &
+//0 -7.32173e-16 0 0.499799 -1.46435e-15 0 -0.499799 0
+//1.9992 -1.9992 0 0 0 0 0
+            //X.Pull();dbg("X:\n"); X.Print();assert(__FILE__ && __LINE__ && false);
+            //while(true);
+            //assert(false);
             
             // then results differ because DOT differs (multi components here)
             timer.sw_cgH1.Stop();

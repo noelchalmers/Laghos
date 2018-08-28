@@ -257,7 +257,7 @@ int main(int argc, char *argv[])
    { cout << "Zones min/max: " << nzones_min << " " << nzones_max << endl; }
 
 
-   // Define the parallel finite element spaces. We use:
+   dbg("Define the parallel finite element spaces");//. We use:
    // - H1 (Gauss-Lobatto, continuous) for position and velocity.
    // - L2 (Bernstein, discontinuous) for specific internal energy.
    L2_FECollection L2FEC(order_e, dim, BasisType::Positive);
@@ -265,16 +265,18 @@ int main(int argc, char *argv[])
    ParFiniteElementSpace L2FESpace(pmesh, &L2FEC);
    ParFiniteElementSpace H1FESpace(pmesh, &H1FEC, pmesh->Dimension());
 
-   // Boundary conditions: all tests use v.n = 0 on the boundary, and we assume
+   dbg("Boundary conditions");//: all tests use v.n = 0 on the boundary, and we assume
    // that the boundaries are straight.
    Array<int> ess_tdofs;
    {
       Array<int> ess_bdr(pmesh->bdr_attributes.Max()), tdofs1d;
       for (int d = 0; d < pmesh->Dimension(); d++)
       {
+         dbg("#d=%d",d);
          // Attributes 1/2/3 correspond to fixed-x/y/z boundaries, i.e., we must
          // enforce v_x/y/z = 0 for the velocity components.
          ess_bdr = 0; ess_bdr[d] = 1;
+         dbg("H1FESpace.GetEssentialTrueDofs");
          H1FESpace.GetEssentialTrueDofs(ess_bdr, tdofs1d, d);
          ess_tdofs.Append(tdofs1d);
       }
@@ -313,7 +315,7 @@ int main(int argc, char *argv[])
    int Vsize_l2 = L2FESpace.GetVSize();
    int Vsize_h1 = H1FESpace.GetVSize();
 
-   // The monolithic BlockVector stores unknown fields as:
+   dbg("The monolithic BlockVector");// stores unknown fields as:
    // - 0 -> position
    // - 1 -> velocity
    // - 2 -> specific internal energy
@@ -345,7 +347,7 @@ int main(int argc, char *argv[])
    // mesh positions to the values in x_gf.
    pmesh->SetNodalGridFunction(&x_gf);
 
-   // Initialize the velocity.
+   dbg("Initialize the velocity.");
    VectorFunctionCoefficient v_coeff(pmesh->Dimension(), v0);
    v_gf.ProjectCoefficient(v_coeff);
 
