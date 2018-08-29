@@ -29,6 +29,7 @@ namespace hydrodynamics
 #define     ijN(i,j,N) (i)+(N)*(j)
 #define    ijkN(i,j,k,N) (i)+(N)*((j)+(N)*(k))
 #define _ijklNM(i,j,k,l,N,M)  (j)+(N)*((k)+(N)*((l)+(M)*(i)))
+#define   ijNMt(i,j,N,M,t) (t)?((i)+(N)*(j)):((j)+(M)*(i))
 
    // **************************************************************************
    static void multABt(const size_t ah,
@@ -74,6 +75,7 @@ namespace hydrodynamics
    }
    
    // **************************************************************************
+   //__attribute__((unused))
    static void getL2Values(const int dim,
                            const int nL2dof1D,
                            const int nqp1D,
@@ -509,7 +511,7 @@ namespace hydrodynamics
       }
       return h_map->GetData();
    }
-  
+   
    // ***************************************************************************
    static void V2Q(ParFiniteElementSpace &fes,
                    const IntegrationRule& ir,
@@ -526,8 +528,98 @@ namespace hydrodynamics
       const int dofs1D = fes.GetFE(0)->GetOrder() + 1;     
       vecToQuad2D(vdim, dofs1D, quad1D, elements, dofToQuad, l2gMap, vec, quad);
    }
-
-
+   
+   
+   // **************************************************************************
+   static void offsetNindices(ParFiniteElementSpace &fes,
+                              mfem::Array<int> &offsets,
+                              mfem::Array<int> &indices){
+      const int elements = fes.GetNE();
+      const int globalDofs = fes.GetNDofs();
+      const int localDofs = fes.GetFE(0)->GetDof();
+      const FiniteElement *fe = fes.GetFE(0);
+      const TensorBasisElement* el = dynamic_cast<const TensorBasisElement*>(fe);
+      const Array<int> &dof_map = el->GetDofMap();
+      const bool dof_map_is_identity = dof_map.Size()==0;
+      const Table& e2dTable = fes.GetElementToDofTable();
+      const int *elementMap = e2dTable.GetJ();      
+      Array<int> h_offsets(globalDofs+1);
+      // We'll be keeping a count of how many local nodes point to its global dof
+      for (int i = 0; i <= globalDofs; ++i) {
+         h_offsets[i] = 0;
+      }
+      for (int e = 0; e < elements; ++e) {
+         for (int d = 0; d < localDofs; ++d) {
+            const int gid = elementMap[localDofs*e + d];
+            ++h_offsets[gid + 1];
+         }
+      }
+      // Aggregate to find offsets for each global dof
+      for (int i = 1; i <= globalDofs; ++i) {
+         h_offsets[i] += h_offsets[i - 1];
+      }
+      Array<int> h_indices(localDofs*elements);
+      // For each global dof, fill in all local nodes that point   to it
+      for (int e = 0; e < elements; ++e) {
+         for (int d = 0; d < localDofs; ++d) {
+            const int did = dof_map_is_identity?d:dof_map[d];
+            const int gid = elementMap[localDofs*e + did];
+            const int lid = localDofs*e + d;
+            h_indices[h_offsets[gid]++] = lid;
+         }
+      }
+      // We shifted the offsets vector by 1 by using it as a counter
+      // Now we shift it back.
+      for (int i = globalDofs; i > 0; --i) {
+         h_offsets[i] = h_offsets[i - 1];
+      }
+      h_offsets[0] = 0;  
+      offsets = h_offsets;
+      indices = h_indices;
+   }
+   
+   // **************************************************************************
+   static void globalToLocal0(const int vdim,
+                              const bool ordering,
+                              const int globalEntries,                                           
+                              const int localEntries,
+                              const int* __restrict offsets,
+                              const int* __restrict indices,
+                              const double* __restrict globalX,
+                              double* __restrict localX) {
+      for(int i=1; i<globalEntries; i+=1) {
+         const int offset = offsets[i];
+         const int nextOffset = offsets[i+1];
+         for (int v = 0; v < vdim; ++v) {
+            const int g_offset = ijNMt(v,i,vdim,globalEntries,ordering);
+            const double dofValue = globalX[g_offset];
+            for (int j = offset; j < nextOffset; ++j) {
+               const int l_offset = ijNMt(v,indices[j],vdim,localEntries,ordering);
+               localX[l_offset] = dofValue;
+            }
+         }
+      }
+   }
+         
+   // **************************************************************************
+   static void globalToLocal(ParFiniteElementSpace &fes,
+                             const double *globalVec,
+                             double *localVec) {
+      const int vdim = fes.GetVDim(); assert(vdim==2);
+      const int localDofs = fes.GetFE(0)->GetDof();
+      const int globalDofs = fes.GetNDofs();
+      const int localEntries = localDofs * fes.GetNE();
+      const bool ordering = false;
+      mfem::Array<int> offsets,indices;
+      offsetNindices(fes,offsets,indices); // should be stored
+      dbg("offsets:");offsets.Print();
+      dbg("indices:");indices.Print();
+      globalToLocal0(vdim, ordering,
+                     globalDofs, localEntries,
+                     offsets, indices,
+                     globalVec, localVec);
+   }
+   
    // **************************************************************************
    void QUpdate(const int dim,
                 const int nzones,
@@ -560,6 +652,9 @@ namespace hydrodynamics
       ParGridFunction x, velocity, energy;
       Vector* sptr = (Vector*) &S;
       x.MakeRef(&H1FESpace, *sptr, 0);
+      for(int i=0;i<x.Size();i+=1){
+         x[i]=i;
+      }
       velocity.MakeRef(&H1FESpace, *sptr, H1FESpace.GetVSize());
       energy.MakeRef(&L2FESpace, *sptr, 2*H1FESpace.GetVSize());
       
@@ -579,11 +674,20 @@ namespace hydrodynamics
       const int nL2dof1D = tensors1D->LQshape1D.Height();
       const int nH1dof1D = tensors1D->HQshape1D.Height();
       
-      Vector e_quads(nzones * nqp1D * nqp1D);
-      V2Q(L2FESpace, integ_rule, energy.GetData(), e_quads.GetData());
-      //e_quads.Print();
+      // Energy values at quadrature point *************************************
+      Vector e_vals(nqp); assert(nqp==nqp1D * nqp1D);
+      //Vector e_quads(nzones * nqp);
+      //V2Q(L2FESpace, integ_rule, energy.GetData(), e_quads.GetData());
       
-      Vector e_vals(nqp1D * nqp1D);
+      /*Vector JprX;
+      const int H1localDofs = H1FESpace.GetFE(0)->GetDof();
+      assert(H1localDofs == nH1dof1D*nH1dof1D);
+      JprX.SetSize(dim*H1localDofs*nzones);
+      globalToLocal(H1FESpace,x.GetData(),JprX.GetData());
+      dbg("JprX:");JprX.Print();
+      //assert(false);
+      */
+      
       const double h1order = (double) H1FESpace.GetOrder(0);
       const double infinity = numeric_limits<double>::infinity();
       double min_detJ = infinity;
@@ -592,20 +696,19 @@ namespace hydrodynamics
          ElementTransformation *T = H1FESpace.GetElementTransformation(z);
          
          // Energy values at quadrature point **********************************
-         //L2FESpace.GetElementDofs(z, L2dofs);
-         //energy.GetSubVector(L2dofs, e_loc);
-         //getL2Values(dim, nL2dof1D, nqp1D, e_loc.GetData(), e_vals.GetData());
-         //e_vals.MakeRef(e_quads,z*nqp1D*nqp1D);
-         //dbg("e_vals.Print():"); e_vals.Print();fflush(0);
+         L2FESpace.GetElementDofs(z, L2dofs);
+         energy.GetSubVector(L2dofs, e_loc);
+         getL2Values(dim, nL2dof1D, nqp1D, e_loc.GetData(), e_vals.GetData());
+         dbg("e_vals.Print():"); e_vals.Print();fflush(0);
          //3.46383 2.49389 1.22839 0.258444 2.49389 1.79555 0.884413 0.186075
          //1.22839 0.884413 0.435625 0.0916527 0.258444 0.186075 0.0916527 0.0192831
          //assert(false);
-         
+ 
          // Jacobians at quadrature points *************************************
          H1FESpace.GetElementVDofs(z, H1dofs);
          x.GetSubVector(H1dofs, vector_loc);
          getVectorGrad(dim, nH1dof1D, nqp1D, h1_dof_map, vector_loc_mtx, Jpr);
-         
+
          // Velocity gradient at quadrature points *****************************
          if (use_viscosity) {
             H1FESpace.GetElementVDofs(z, H1dofs);
@@ -622,14 +725,19 @@ namespace hydrodynamics
             const double inv_weight = 1. / weight;
 
             const DenseMatrix &J = Jpr(q);
+            //const DenseMatrix &Jx = DenseMatrix(&JprX.GetData()[z*dim*H1localDofs+q],dim,dim);
+            //dbg("J:");J.Print();
+            //dbg("Jx:");Jx.Print();
+            //assert(false);
+
             const double detJ = J.Det();
             min_detJ = fmin(min_detJ, detJ);   
             calcInverse2D(J.Height(), J.Data(), Jinv.Data());        
             
             // *****************************************************************
             const double rho = inv_weight * quad_data.rho0DetJ0w(idx) / detJ;
-            //const double e   = fmax(0.0, e_vals(q));
-            const double e   = fmax(0.0, e_quads.GetData()[z*nqp1D*nqp1D+q]);
+            const double e   = fmax(0.0, e_vals(q));
+            //const double e   = fmax(0.0, e_quads.GetData()[z*nqp1D*nqp1D+q]);
             const double p  = (gamma - 1.0) * rho * e;
             const double sound_speed = sqrt(gamma * (gamma-1.0) * e);
             // *****************************************************************
