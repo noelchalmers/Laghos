@@ -122,6 +122,8 @@ protected:
    mutable mfem::Vector e_rhs;
    mutable mfem::Vector rhs_c, dv_c, kv;
    //mutable mfem::Vector loc_rhs, loc_de;
+   // bool switch to launch QUpdate or StdUpdateQuadratureData
+   const bool qupdate;
    
    virtual void ComputeMaterialProperties(int nvalues, const double gamma[],
                                           const double rho[], const double e[],
@@ -135,6 +137,7 @@ protected:
    }
 
    void UpdateQuadratureData(const Vector &S) const;
+   void StdUpdateQuadratureData(const Vector &S) const;
 
 public:
    LagrangianHydroOperator(int size, ParFiniteElementSpace &h1_fes,
@@ -142,7 +145,7 @@ public:
                            Array<int> &essential_tdofs, ParGridFunction &rho0,
                            int source_type_, double cfl_,
                            Coefficient *material_, bool visc, bool pa,
-                           double cgt, int cgiter);
+                           double cgt, int cgiter,bool qupdate);
 
    // Solve for dx_dt, dv_dt and de_dt.
    virtual void Mult(const Vector &S, Vector &dS_dt) const;
@@ -172,6 +175,23 @@ class TaylorCoefficient : public Coefficient
                                   cos(M_PI*x(0))     * cos(3.0*M_PI*x(1)) );
    }
 };
+
+   // **************************************************************************
+   void QUpdate(const int dim,
+                const int nzones,
+                const int l2dofs_cnt,
+                const int h1dofs_cnt,
+                const bool use_viscosity,
+                const bool p_assembly,
+                const double cfl,
+                TimingData &timer,
+                Coefficient *material_pcf,
+                const IntegrationRule &integ_rule,
+                ParFiniteElementSpace &H1FESpace,
+                ParFiniteElementSpace &L2FESpace,
+                const Vector &S,
+                bool &quad_data_is_current,
+                QuadratureData &quad_data);
 
 } // namespace hydrodynamics
 

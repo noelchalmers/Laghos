@@ -83,7 +83,7 @@ LagrangianHydroOperator::LagrangianHydroOperator(int size,
                                                  int source_type_, double cfl_,
                                                  Coefficient *material_,
                                                  bool visc, bool pa,
-                                                 double cgt, int cgiter) :
+                                                 double cgt, int cgiter,bool qu) :
    TimeDependentOperator(size),
    H1FESpace(h1_fes), L2FESpace(l2_fes),
    H1compFESpace(h1_fes.GetParMesh(), h1_fes.FEColl(),1),
@@ -132,7 +132,8 @@ LagrangianHydroOperator::LagrangianHydroOperator(int size,
    e_rhs(VsizeL2),
    rhs_c(H1compFESpace.GetVSize()),
    dv_c(H1compFESpace.GetVSize()),
-   kv(H1compFESpace.GetVSize())
+   kv(H1compFESpace.GetVSize()),
+   qupdate(qu)
 {
    push();
    one=1.0;
@@ -631,6 +632,17 @@ LagrangianHydroOperator::~LagrangianHydroOperator()
 }
 
 void LagrangianHydroOperator::UpdateQuadratureData(const Vector &S) const
+{
+   if (qupdate) {
+      QUpdate(dim,nzones,l2dofs_cnt,h1dofs_cnt,use_viscosity,p_assembly,cfl,
+              timer,material_pcf,integ_rule,H1FESpace,L2FESpace,S,
+              quad_data_is_current,quad_data);
+      return;
+   }
+   StdUpdateQuadratureData(S);
+}
+   
+void LagrangianHydroOperator::StdUpdateQuadratureData(const Vector &S) const
 {
    if (quad_data_is_current) { return; }
    timer.sw_qdata.Start();

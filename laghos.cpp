@@ -94,6 +94,7 @@ int main(int argc, char *argv[])
    bool gfprint = false;
    const char *basename = "results/Laghos";
    int partition_type = 111;
+   bool qupdate = false;
 
    OptionsParser args(argc, argv);
    args.AddOption(&mesh_file, "-m", "--mesh",
@@ -144,6 +145,8 @@ int main(int argc, char *argv[])
                   "of zones in each direction, e.g., the number of zones in direction x\n\t"
                   "must be divisible by the number of MPI tasks in direction x.\n\t"
                   "Available options: 11, 21, 111, 211, 221, 311, 321, 322, 432.");
+   args.AddOption(&qupdate, "-q", "--qupdate", "-no-q", "--no-qupdate",
+                  "Enable or disable QUpdate function.");
    args.Parse();
    if (!args.Good())
    {
@@ -401,7 +404,7 @@ int main(int argc, char *argv[])
 
    LagrangianHydroOperator oper(S.Size(), H1FESpace, L2FESpace,
                                 ess_tdofs, rho, source, cfl, mat_gf_coeff,
-                                visc, p_assembly, cg_tol, cg_max_iter);
+                                visc, p_assembly, cg_tol, cg_max_iter, qupdate);
 
    socketstream vis_rho, vis_v, vis_e;
    char vishost[] = "localhost";

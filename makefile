@@ -157,6 +157,7 @@ KERNELS_DIR = $(MAKEFILE_DIR)/kernels
 
 # SOURCE FILES SETUP ***********************************************************
 SOURCE_FILES = laghos.cpp laghos_solver.cpp laghos_assembly.cpp \
+	laghos_qupdate.cpp \
 	$(KERNELS_DIR)/kForcePAOperator.cpp \
 	$(KERNELS_DIR)/kMassPAOperator.cpp
 # Kernel files setup
@@ -192,6 +193,10 @@ pgo2:;@DBG=1 mpirun -xterm -1! -n 2 ./laghos -cfl 0.1 -rs 0 -ng -ms 1 -cgt 0 -cg
 #pgo:;@mpirun -n 2 -xterm -1! --tag-output --merge-stderr-to-stdout ./laghos -cfl 0.1 -rs 0
 
 ng:;@./laghos -cfl 0.1 -rs 0 -ng
+png:;@mpirun -n 1 ./laghos -cfl 0.1 -ng
+png2:;mpirun -n 2 ./laghos -cfl 0.1 -ng
+png3:;mpirun -n 3 ./laghos -cfl 0.1 -ng
+
 dng:;@cuda-gdb --args ./laghos -cfl 0.1 -rs 0 -ng #-cgt 0 -cgm 2
 mng:;cuda-memcheck ./laghos -cfl 0.1 -rs 0 -ng -ms 1
 ddng:;@DBG=1 cuda-gdb --args ./laghos -cfl 0.1 -rs 0 -ng -cgt 0 -cgm 2
@@ -202,8 +207,6 @@ mng2:;DBG=1 cuda-memcheck ./laghos -cfl 0.1 -rs 0 -ng -ms 1 -cgt 0 -cgm 2
 dng1:;DBG=1 cuda-gdb --args ./laghos -cfl 0.1 -rs 0 -ng -ms 1 -cgt 0 -cgm 1
 
 vng:;@valgrind ./laghos -cfl 0.1 -rs 0 -ms 1 -ng
-png1:;@mpirun -n 1 ./laghos -cfl 0.1 -ng
-png2:;@DBG=1 mpirun -xterm -1! -n 2 ./laghos -cfl 0.1 -rs 0 -ng -ms 1
 mpng2:;@DBG=1 mpirun -xterm -1! -n 2 cuda-memcheck ./laghos -cfl 0.1 -rs 0 -ng -ms 1 -cgt 0 -cgm 1
 vpng2:;@DBG=1 mpirun -xterm -1! -n 2 valgrind --leak-check=full --track-origins=yes ./laghos -cfl 0.1 -rs 0 -ng -ms 1 -cgt 0 -cgm 1
 
