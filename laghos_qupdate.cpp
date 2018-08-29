@@ -25,6 +25,10 @@ namespace mfem
 
 namespace hydrodynamics
 {
+   // **************************************************************************
+#define     ijN(i,j,N) (i)+(N)*(j)
+#define    ijkN(i,j,k,N) (i)+(N)*((j)+(N)*(k))
+#define _ijklNM(i,j,k,l,N,M)  (j)+(N)*((k)+(N)*((l)+(M)*(i)))
 
    // **************************************************************************
    static void multABt(const size_t ah,
@@ -348,6 +352,183 @@ namespace hydrodynamics
    }
    
    // **************************************************************************
+   static void vecToQuad2D(const int NUM_VDIM,
+                           const int NUM_DOFS_1D,
+                           const int NUM_QUAD_1D,
+                           const int numElements,
+                           const double* dofToQuad,
+                           const int* l2gMap,
+                           const double* gf,
+                           double* out) {
+      for(int e=0;e<numElements;e+=1){
+         double out_xy[NUM_VDIM][NUM_QUAD_1D][NUM_QUAD_1D];
+         for (int v = 0; v < NUM_VDIM; ++v) {
+            for (int qy = 0; qy < NUM_QUAD_1D; ++qy) {
+               for (int qx = 0; qx < NUM_QUAD_1D; ++qx) {
+                  out_xy[v][qy][qx] = 0;
+               }
+            }
+         }
+         for (int dy = 0; dy < NUM_DOFS_1D; ++dy) {
+            double out_x[NUM_VDIM][NUM_QUAD_1D];
+            for (int v = 0; v < NUM_VDIM; ++v) {
+               for (int qy = 0; qy < NUM_QUAD_1D; ++qy) {
+                  out_x[v][qy] = 0;
+               }
+            }
+            for (int dx = 0; dx < NUM_DOFS_1D; ++dx) {
+               const int gid = l2gMap[ijkN(dx, dy, e,NUM_DOFS_1D)];
+               for (int v = 0; v < NUM_VDIM; ++v) {
+                  const double r_gf = gf[v + gid*NUM_VDIM];
+                  for (int qy = 0; qy < NUM_QUAD_1D; ++qy) {
+                     out_x[v][qy] += r_gf * dofToQuad[ijN(qy, dx,NUM_QUAD_1D)];
+                  }
+               }
+            }
+            for (int v = 0; v < NUM_VDIM; ++v) {
+               for (int qy = 0; qy < NUM_QUAD_1D; ++qy) {
+                  const double d2q = dofToQuad[ijN(qy, dy,NUM_QUAD_1D)];
+                  for (int qx = 0; qx < NUM_QUAD_1D; ++qx) {
+                     out_xy[v][qy][qx] += d2q * out_x[v][qx];
+                  }
+               }
+            }
+         }
+         for (int qy = 0; qy < NUM_QUAD_1D; ++qy) {
+            for (int qx = 0; qx < NUM_QUAD_1D; ++qx) {
+               for (int v = 0; v < NUM_VDIM; ++v) {
+                  out[_ijklNM(v, qx, qy, e,NUM_QUAD_1D,numElements)] = out_xy[v][qy][qx];
+               }
+            }
+         }
+      }
+   }
+
+   // **************************************************************************
+   class DofQuadMaps {
+   public:
+      std::string hash;
+      mfem::Vector dofToQuad;
+   };
+   
+   // **************************************************************************
+   static std::map<std::string, DofQuadMaps* > AllDofQuadMaps;
+   
+   // ***************************************************************************
+   static DofQuadMaps* GetD2QTensorMaps(const FiniteElement& fe,
+                                        const IntegrationRule& ir) {
+      const TensorBasisElement& tfe = dynamic_cast<const TensorBasisElement&>(fe);
+      const Poly_1D::Basis& basis = tfe.GetBasis1D();
+      const int order = fe.GetOrder();
+      const int dofs = order + 1;
+      const int dims = fe.GetDim();
+      const IntegrationRule& ir1D = IntRules.Get(Geometry::SEGMENT, ir.GetOrder());
+      const int quadPoints = ir1D.GetNPoints();
+      std::stringstream ss ;
+      ss << "D2QTensorMap:"
+         << " order:" << order
+         << " dofs:" << dofs
+         << " dims:" << dims
+         << " quadPoints:"<<quadPoints;
+
+      std::string hash = ss.str();
+      if (AllDofQuadMaps.find(hash)!=AllDofQuadMaps.end())
+         return AllDofQuadMaps[hash];
+
+      DofQuadMaps *maps = new DofQuadMaps();
+      AllDofQuadMaps[hash]=maps;
+      maps->hash = hash;
+  
+      maps->dofToQuad.SetSize(quadPoints*dofs);
+      mfem::Vector d2q(dofs); 
+      mfem::Array<double> dofToQuad(quadPoints*dofs);
+      
+      for (int q = 0; q < quadPoints; ++q) {
+         const IntegrationPoint& ip = ir1D.IntPoint(q);
+         basis.Eval(ip.x, d2q);
+         for (int d = 0; d < dofs; ++d) {
+            dofToQuad[q + quadPoints*d] = d2q[d];
+         }
+      }
+      maps->dofToQuad = dofToQuad;
+      //dbg("dofToQuad.Print():"); dofToQuad.Print();
+      return maps;
+   }
+   
+   // **************************************************************************
+   static DofQuadMaps* GetTensorMaps(const FiniteElement& trialFE,
+                                     const FiniteElement& testFE,
+                                     const IntegrationRule& ir) {
+      const TensorBasisElement& trialTFE =
+         dynamic_cast<const TensorBasisElement&>(trialFE);
+      const TensorBasisElement& testTFE =
+         dynamic_cast<const TensorBasisElement&>(testFE);
+      std::stringstream ss;
+      ss << "TensorMap:"
+         << " O1:"  << trialFE.GetOrder()
+         << " O2:"  << testFE.GetOrder()
+         << " BT1:" << trialTFE.GetBasisType()
+         << " BT2:" << testTFE.GetBasisType()
+         << " Q:"   << ir.GetNPoints();
+      std::string hash = ss.str();
+      // If we've already made the dof-quad maps, reuse them
+      if (AllDofQuadMaps.find(hash)!=AllDofQuadMaps.end())
+         return AllDofQuadMaps[hash];
+      // Otherwise, build them
+      DofQuadMaps *maps = new DofQuadMaps();
+      AllDofQuadMaps[hash]=maps;
+      maps->hash = hash;
+      push();
+      dbg("%s",ss.str().c_str());
+      const DofQuadMaps* trialMaps = GetD2QTensorMaps(trialFE, ir);
+      maps->dofToQuad   = trialMaps->dofToQuad;
+      return maps;
+   }
+
+   // **************************************************************************
+   static int *Global2LocalMap(ParFiniteElementSpace &fes){
+      const int elements = fes.GetNE();
+      const int globalDofs = fes.GetNDofs();
+      const int localDofs = fes.GetFE(0)->GetDof();
+
+      const FiniteElement *fe = fes.GetFE(0);
+      const TensorBasisElement* el = dynamic_cast<const TensorBasisElement*>(fe);
+      const Array<int> &dof_map = el->GetDofMap();
+      const bool dof_map_is_identity = dof_map.Size()==0;
+      const Table& e2dTable = fes.GetElementToDofTable();
+      const int *elementMap = e2dTable.GetJ();
+      Array<int> *h_map = new mfem::Array<int>(localDofs*elements);
+      
+      for (int e = 0; e < elements; ++e) {
+         for (int d = 0; d < localDofs; ++d) {
+            const int did = dof_map_is_identity?d:dof_map[d];
+            const int gid = elementMap[localDofs*e + did];
+            const int lid = localDofs*e + d;
+            (*h_map)[lid] = gid;
+         }
+      }
+      return h_map->GetData();
+   }
+  
+   // ***************************************************************************
+   static void V2Q(ParFiniteElementSpace &fes,
+                   const IntegrationRule& ir,
+                   const double *vec,
+                   double *quad) {
+      const FiniteElement& fe = *fes.GetFE(0);
+      const int dim  = fe.GetDim(); assert(dim==2);
+      const int vdim = fes.GetVDim();
+      const int elements = fes.GetNE();
+      const DofQuadMaps* maps = GetTensorMaps(fe,fe,ir);
+      const double* dofToQuad = maps->dofToQuad;
+      const int* l2gMap = Global2LocalMap(fes);
+      const int quad1D = IntRules.Get(Geometry::SEGMENT,ir.GetOrder()).GetNPoints();
+      const int dofs1D = fes.GetFE(0)->GetOrder() + 1;     
+      vecToQuad2D(vdim, dofs1D, quad1D, elements, dofToQuad, l2gMap, vec, quad);
+   }
+
+
+   // **************************************************************************
    void QUpdate(const int dim,
                 const int nzones,
                 const int l2dofs_cnt,
@@ -398,6 +579,10 @@ namespace hydrodynamics
       const int nL2dof1D = tensors1D->LQshape1D.Height();
       const int nH1dof1D = tensors1D->HQshape1D.Height();
       
+      Vector e_quads(nzones * nqp1D * nqp1D);
+      V2Q(L2FESpace, integ_rule, energy.GetData(), e_quads.GetData());
+      //e_quads.Print();
+      
       Vector e_vals(nqp1D * nqp1D);
       const double h1order = (double) H1FESpace.GetOrder(0);
       const double infinity = numeric_limits<double>::infinity();
@@ -407,9 +592,14 @@ namespace hydrodynamics
          ElementTransformation *T = H1FESpace.GetElementTransformation(z);
          
          // Energy values at quadrature point **********************************
-         L2FESpace.GetElementDofs(z, L2dofs);
-         energy.GetSubVector(L2dofs, e_loc);
-         getL2Values(dim, nL2dof1D, nqp1D, e_loc.GetData(), e_vals.GetData());
+         //L2FESpace.GetElementDofs(z, L2dofs);
+         //energy.GetSubVector(L2dofs, e_loc);
+         //getL2Values(dim, nL2dof1D, nqp1D, e_loc.GetData(), e_vals.GetData());
+         //e_vals.MakeRef(e_quads,z*nqp1D*nqp1D);
+         //dbg("e_vals.Print():"); e_vals.Print();fflush(0);
+         //3.46383 2.49389 1.22839 0.258444 2.49389 1.79555 0.884413 0.186075
+         //1.22839 0.884413 0.435625 0.0916527 0.258444 0.186075 0.0916527 0.0192831
+         //assert(false);
          
          // Jacobians at quadrature points *************************************
          H1FESpace.GetElementVDofs(z, H1dofs);
@@ -425,6 +615,7 @@ namespace hydrodynamics
          
          // ********************************************************************
          for (int q = 0; q < nqp; q++) {
+            const int idx = z * nqp + q;
             const IntegrationPoint &ip = integ_rule.IntPoint(q);
             T->SetIntPoint(&ip);
             const double weight = ip.weight;
@@ -432,19 +623,18 @@ namespace hydrodynamics
 
             const DenseMatrix &J = Jpr(q);
             const double detJ = J.Det();
-            min_detJ = fmin(min_detJ, detJ);
+            min_detJ = fmin(min_detJ, detJ);   
+            calcInverse2D(J.Height(), J.Data(), Jinv.Data());        
             
-            const int idx = z * nqp + q;
-            
-            const double rho = inv_weight * quad_data.rho0DetJ0w(idx) / detJ;
-            const double e   = fmax(0.0, e_vals(q));
             // *****************************************************************
+            const double rho = inv_weight * quad_data.rho0DetJ0w(idx) / detJ;
+            //const double e   = fmax(0.0, e_vals(q));
+            const double e   = fmax(0.0, e_quads.GetData()[z*nqp1D*nqp1D+q]);
             const double p  = (gamma - 1.0) * rho * e;
             const double sound_speed = sqrt(gamma * (gamma-1.0) * e);
             // *****************************************************************
-            calcInverse2D(J.Height(), J.Data(), Jinv.Data());
             stress = 0.0;
-            for (int d = 0; d < dim; d++)  stress(d, d) = -p;
+            for (int d = 0; d < dim; d++)  stress(d,d) = -p;
             // *****************************************************************
             double visc_coeff = 0.0;
             if (use_viscosity) {
