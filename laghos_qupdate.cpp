@@ -365,14 +365,14 @@ namespace hydrodynamics
                 QuadratureData &quad_data) {
       assert(p_assembly);
       assert(material_pcf);
-      timer.sw_qdata.Start();
       
-      //ElementTransformation *T = H1FESpace.GetElementTransformation(0);
-      //const IntegrationPoint &ip = integ_rule.IntPoint(0);
-      //const double gamma = material_pcf->Eval(*T,ip);
+      ElementTransformation *T = H1FESpace.GetElementTransformation(0);
+      const IntegrationPoint &ip = integ_rule.IntPoint(0);
+      const double gamma = material_pcf->Eval(*T,ip);
 
       // ***********************************************************************
       if (quad_data_is_current) return;
+      timer.sw_qdata.Start();
 
       const int nqp = integ_rule.GetNPoints();
 
@@ -390,7 +390,6 @@ namespace hydrodynamics
       DenseTensor Jpr;
       Jpr.SetSize(dim, dim, nqp);
 
-      // H1FESpace dof_map
       const H1_QuadrilateralElement *fe =
          dynamic_cast<const H1_QuadrilateralElement *>(H1FESpace.GetFE(0));
       const Array<int> &h1_dof_map = fe->GetDofMap();
@@ -410,20 +409,17 @@ namespace hydrodynamics
          // Energy values at quadrature point **********************************
          L2FESpace.GetElementDofs(z, L2dofs);
          energy.GetSubVector(L2dofs, e_loc);
-         //evaluator->GetL2Values(e_loc, e_vals);
          getL2Values(dim, nL2dof1D, nqp1D, e_loc.GetData(), e_vals.GetData());
          
          // Jacobians at quadrature points *************************************
          H1FESpace.GetElementVDofs(z, H1dofs);
          x.GetSubVector(H1dofs, vector_loc);
-         //evaluator->GetVectorGrad(vector_loc_mtx, Jpr);
          getVectorGrad(dim, nH1dof1D, nqp1D, h1_dof_map, vector_loc_mtx, Jpr);
          
          // Velocity gradient at quadrature points *****************************
          if (use_viscosity) {
             H1FESpace.GetElementVDofs(z, H1dofs);
             velocity.GetSubVector(H1dofs, vector_loc);
-            //evaluator->GetVectorGrad(vector_loc_mtx, grad_v_ref);
             getVectorGrad(dim, nH1dof1D, nqp1D, h1_dof_map, vector_loc_mtx, grad_v_ref);
          }
          
@@ -436,13 +432,12 @@ namespace hydrodynamics
 
             const DenseMatrix &J = Jpr(q);
             const double detJ = J.Det();
-            min_detJ = min(min_detJ, detJ);
+            min_detJ = fmin(min_detJ, detJ);
             
             const int idx = z * nqp + q;
-            const double gamma = material_pcf->Eval(*T,ip);
             
             const double rho = inv_weight * quad_data.rho0DetJ0w(idx) / detJ;
-            const double e   = /*f*/max(0.0, e_vals(q));
+            const double e   = fmax(0.0, e_vals(q));
             // *****************************************************************
             const double p  = (gamma - 1.0) * rho * e;
             const double sound_speed = sqrt(gamma * (gamma-1.0) * e);
@@ -457,10 +452,8 @@ namespace hydrodynamics
                // eigenvector of the symmetric velocity gradient gives the
                // direction of maximal compression. This is used to define the
                // relative change of the initial length scale.
-               //mfem::Mult(grad_v_ref(q), Jinv, sgrad_v);
                mult(sgrad_v.Height(),sgrad_v.Width(),grad_v_ref(q).Width(),
                     grad_v_ref(q).Data(), Jinv.Data(), sgrad_v.Data());
-               //sgrad_v.Symmetrize();
                symmetrize(sgrad_v.Height(),sgrad_v.Data());
                double eig_val_data[3], eig_vec_data[9];
                if (dim==1) {
@@ -468,13 +461,11 @@ namespace hydrodynamics
                   eig_vec_data[0] = 1.;
                }
                else {
-                  //sgrad_v.CalcEigenvalues(eig_val_data, eig_vec_data);
                   calcEigenvalues(sgrad_v.Height(),sgrad_v.Data(),
                                   eig_val_data, eig_vec_data);
                }
                Vector compr_dir(eig_vec_data, dim);
                // Computes the initial->physical transformation Jacobian.
-               //mfem::Mult(Jpr, quad_data.Jac0inv(z*nqp + q), Jpi);
                mult(Jpi.Height(),Jpi.Width(),J.Width(),
                  J.Data(), quad_data.Jac0inv(idx).Data(), Jpi.Data());
                Vector ph_dir(dim);
@@ -487,7 +478,6 @@ namespace hydrodynamics
                const double mu = eig_val_data[0];
                visc_coeff = 2.0 * rho * h * h * fabs(mu);
                if (mu < 0.0) { visc_coeff += 0.5 * rho * h * sound_speed; }
-               //stress.Add(visc_coeff, sgrad_v);
                add(stress.Height(), stress.Width(),visc_coeff, sgrad_v.Data(), stress.Data());
             }
             // Time step estimate at the point. Here the more relevant length
@@ -496,17 +486,15 @@ namespace hydrodynamics
             // time step estimate should be aware of the presence of shocks.
             const double h_min = calcSingularvalue(J.Height(), dim-1, J.Data()) / h1order;
             const double inv_h_min = 1. / h_min;
-            const double inv_h_min_sq = inv_h_min * inv_h_min;
-            const double inv_rho_inv_h_min_sq = 1. / (rho * inv_h_min_sq);
-            const double inv_dt = (sound_speed * inv_h_min) + 2.5 * visc_coeff * inv_rho_inv_h_min_sq;
+            const double inv_rho_inv_h_min_sq = inv_h_min * inv_h_min / rho ;
+            const double inv_dt = sound_speed * inv_h_min + 2.5 * visc_coeff * inv_rho_inv_h_min_sq;
             if (min_detJ < 0.0) {
                // This will force repetition of the step with smaller dt.
                quad_data.dt_est = 0.0;
             } else {
-               quad_data.dt_est = /*f*/min(quad_data.dt_est, cfl * (1.0 / inv_dt) );
+               quad_data.dt_est = fmin(quad_data.dt_est, cfl * (1.0 / inv_dt) );
             }
             // Quadrature data for partial assembly of the force operator.
-            //MultABt(stress, Jinv, stressJiT);
             multABt(stress.Height(), stress.Width(), Jinv.Height(),
                     stress.Data(), Jinv.Data(), stressJiT.Data());
             stressJiT *= weight * detJ;
