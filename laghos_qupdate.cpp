@@ -121,7 +121,7 @@ namespace hydrodynamics
          for (int k1 = 0; k1 < nqp1D; k1++) {
             for (int k2 = 0; k2 < nqp1D; k2++) {
                const int idx = k2 * nqp1D + k1;
-               J(idx)(c, 0) = QQ[k1+nqp1D*k2];
+               J(idx)(c, 0) = QQ[idx];
             }
          }
 
@@ -135,7 +135,7 @@ namespace hydrodynamics
          for (int k1 = 0; k1 < nqp1D; k1++) {
             for (int k2 = 0; k2 < nqp1D; k2++) {
                const int idx = k2 * nqp1D + k1;
-               J(idx)(c, 1) = QQ[k1+nqp1D*k2];
+               J(idx)(c, 1) = QQ[idx];
             }
          }
       }
@@ -612,8 +612,8 @@ namespace hydrodynamics
       const bool ordering = false;
       mfem::Array<int> offsets,indices;
       offsetNindices(fes,offsets,indices); // should be stored
-      dbg("offsets:");offsets.Print();
-      dbg("indices:");indices.Print();
+      //dbg("offsets:");offsets.Print();
+      //dbg("indices:");indices.Print();
       globalToLocal0(vdim, ordering,
                      globalDofs, localEntries,
                      offsets, indices,
@@ -648,15 +648,17 @@ namespace hydrodynamics
       timer.sw_qdata.Start();
 
       const int nqp = integ_rule.GetNPoints();
+      //dbg("nqp=%d",nqp);
 
       ParGridFunction x, velocity, energy;
       Vector* sptr = (Vector*) &S;
       x.MakeRef(&H1FESpace, *sptr, 0);
-      for(int i=0;i<x.Size();i+=1){
-         x[i]=i;
-      }
+//#warning x      for(int i=0;i<x.Size();i+=1) x[i]=i;
+      //dbg("\nx (size=%d):\n",x.Size());x.Print();
       velocity.MakeRef(&H1FESpace, *sptr, H1FESpace.GetVSize());
+      //dbg("\nvelocity (size=%d):\n",velocity.Size());velocity.Print();
       energy.MakeRef(&L2FESpace, *sptr, 2*H1FESpace.GetVSize());
+      //dbg("\nenergy (size=%d):\n",energy.Size());energy.Print();
       
       Vector e_loc(l2dofs_cnt), vector_loc(h1dofs_cnt * dim);
       DenseMatrix Jpi(dim), sgrad_v(dim), Jinv(dim), stress(dim), stressJiT(dim);
@@ -675,18 +677,22 @@ namespace hydrodynamics
       const int nH1dof1D = tensors1D->HQshape1D.Height();
       
       // Energy values at quadrature point *************************************
-      Vector e_vals(nqp); assert(nqp==nqp1D * nqp1D);
-      //Vector e_quads(nzones * nqp);
-      //V2Q(L2FESpace, integ_rule, energy.GetData(), e_quads.GetData());
+      const bool use_external_e = false;
+      Vector e_vals(nqp);
+      Vector e_quads(nzones * nqp);
+      if (use_external_e)
+         V2Q(L2FESpace, integ_rule, energy.GetData(), e_quads.GetData());
       
-      /*Vector JprX;
+      const bool use_external_v = false;
+      assert(!use_external_v); // not working yet
+      Vector JprX;
       const int H1localDofs = H1FESpace.GetFE(0)->GetDof();
       assert(H1localDofs == nH1dof1D*nH1dof1D);
-      JprX.SetSize(dim*H1localDofs*nzones);
-      globalToLocal(H1FESpace,x.GetData(),JprX.GetData());
-      dbg("JprX:");JprX.Print();
-      //assert(false);
-      */
+      if (use_external_v){
+         JprX.SetSize(dim*H1localDofs*nzones);
+         globalToLocal(H1FESpace,x.GetData(),JprX.GetData());
+         //dbg("JprX:");JprX.Print();
+      }
       
       const double h1order = (double) H1FESpace.GetOrder(0);
       const double infinity = numeric_limits<double>::infinity();
@@ -696,18 +702,25 @@ namespace hydrodynamics
          ElementTransformation *T = H1FESpace.GetElementTransformation(z);
          
          // Energy values at quadrature point **********************************
-         L2FESpace.GetElementDofs(z, L2dofs);
-         energy.GetSubVector(L2dofs, e_loc);
-         getL2Values(dim, nL2dof1D, nqp1D, e_loc.GetData(), e_vals.GetData());
-         dbg("e_vals.Print():"); e_vals.Print();fflush(0);
-         //3.46383 2.49389 1.22839 0.258444 2.49389 1.79555 0.884413 0.186075
-         //1.22839 0.884413 0.435625 0.0916527 0.258444 0.186075 0.0916527 0.0192831
-         //assert(false);
+         if (!use_external_e){
+            L2FESpace.GetElementDofs(z, L2dofs);
+            //dbg("\nL2dofs:\n");L2dofs.Print();
+            energy.GetSubVector(L2dofs, e_loc);
+            //dbg("\ne_loc (z=%d):\n",z); e_loc.Print();
+            getL2Values(dim, nL2dof1D, nqp1D, e_loc.GetData(), e_vals.GetData());
+            //dbg("\ne_vals (z=%d):\n",z); e_vals.Print();
+         }
  
          // Jacobians at quadrature points *************************************
-         H1FESpace.GetElementVDofs(z, H1dofs);
-         x.GetSubVector(H1dofs, vector_loc);
-         getVectorGrad(dim, nH1dof1D, nqp1D, h1_dof_map, vector_loc_mtx, Jpr);
+         if (!use_external_v){
+            H1FESpace.GetElementVDofs(z, H1dofs);
+            //dbg("\nH1dofs:\n");H1dofs.Print();
+            x.GetSubVector(H1dofs, vector_loc);
+            //dbg("\nvector_loc (z=%d):\n",z);vector_loc.Print();           
+            //assert(false);
+            getVectorGrad(dim, nH1dof1D, nqp1D, h1_dof_map, vector_loc_mtx, Jpr);
+            //for(int q=0; q < nqp; q++) dbg("\nJpr (z=%d, q=%d):\n",z,q);Jpr(q).Print();
+         }
 
          // Velocity gradient at quadrature points *****************************
          if (use_viscosity) {
@@ -724,11 +737,8 @@ namespace hydrodynamics
             const double weight = ip.weight;
             const double inv_weight = 1. / weight;
 
-            const DenseMatrix &J = Jpr(q);
-            //const DenseMatrix &Jx = DenseMatrix(&JprX.GetData()[z*dim*H1localDofs+q],dim,dim);
-            //dbg("J:");J.Print();
-            //dbg("Jx:");Jx.Print();
-            //assert(false);
+            const DenseMatrix &J = !use_external_v? Jpr(q):
+               DenseMatrix(&JprX.GetData()[z*dim*H1localDofs+q],dim,dim);
 
             const double detJ = J.Det();
             min_detJ = fmin(min_detJ, detJ);   
@@ -736,8 +746,9 @@ namespace hydrodynamics
             
             // *****************************************************************
             const double rho = inv_weight * quad_data.rho0DetJ0w(idx) / detJ;
-            const double e   = fmax(0.0, e_vals(q));
-            //const double e   = fmax(0.0, e_quads.GetData()[z*nqp1D*nqp1D+q]);
+            const double e   = !use_external_e?
+               fmax(0.0, e_vals(q)):
+               fmax(0.0, e_quads.GetData()[z*nqp1D*nqp1D+q]);
             const double p  = (gamma - 1.0) * rho * e;
             const double sound_speed = sqrt(gamma * (gamma-1.0) * e);
             // *****************************************************************
@@ -804,6 +815,7 @@ namespace hydrodynamics
             }
          }
       }
+      //assert(false);
       quad_data_is_current = true;
       timer.sw_qdata.Stop();
       timer.quad_tstep += nzones;
