@@ -176,23 +176,6 @@ class TaylorCoefficient : public Coefficient
    }
 };
 
-   // **************************************************************************
-   void QUpdate(const int dim,
-                const int nzones,
-                const int l2dofs_cnt,
-                const int h1dofs_cnt,
-                const bool use_viscosity,
-                const bool p_assembly,
-                const double cfl,
-                TimingData &timer,
-                Coefficient *material_pcf,
-                const IntegrationRule &integ_rule,
-                ParFiniteElementSpace &H1FESpace,
-                ParFiniteElementSpace &L2FESpace,
-                const Vector &S,
-                bool &quad_data_is_current,
-                QuadratureData &quad_data);
-
 } // namespace hydrodynamics
 
 } // namespace mfem

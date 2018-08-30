@@ -45,7 +45,7 @@ private:
    const int H1_DOFS_1D;
    const int h1sz;
    const int l2sz;
-   const kernels::KernelsDofQuadMaps *l2D2Q, *h1D2Q;
+   const kernels::kDofQuadMaps *l2D2Q, *h1D2Q;
    mutable mfem::Vector gVecL2, gVecH1;
 public:
    kForcePAOperator(QuadratureData*,

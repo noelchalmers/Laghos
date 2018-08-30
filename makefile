@@ -157,7 +157,15 @@ KERNELS_DIR = $(MAKEFILE_DIR)/kernels
 
 # SOURCE FILES SETUP ***********************************************************
 SOURCE_FILES = laghos.cpp laghos_solver.cpp laghos_assembly.cpp \
-	laghos_qupdate.cpp \
+	qupdate/d2q.cpp \
+	qupdate/dof2quad.cpp \
+	qupdate/geom.cpp \
+	qupdate/maps.cpp \
+	qupdate/qupdate.cpp \
+	qupdate/densemat.cpp \
+	qupdate/eigen.cpp \
+	qupdate/global2local.cpp \
+	qupdate/memcpy.cpp\
 	$(KERNELS_DIR)/kForcePAOperator.cpp \
 	$(KERNELS_DIR)/kMassPAOperator.cpp
 # Kernel files setup
@@ -177,7 +185,7 @@ HEADER_FILES = laghos_solver.hpp laghos_assembly.hpp
 
 .SUFFIXES: .c .cpp .o
 .cpp.o:
-	cd $(<D); $(CCC) -c $(<F)
+	cd $(<D); $(CCC) -c $(abspath $<)
 .c.o:
 	cd $(<D); $(Ccc) -c $(<F)
 
