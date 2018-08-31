@@ -86,7 +86,137 @@ namespace hydrodynamics {
             }
          }
       }
-   } 
+   }
+
+   // **************************************************************************
+   static void qGradVector2D( const int NUM_DOFS,
+                              const int NUM_QUAD,
+                              const int numElements,
+                              const double* __restrict dofToQuadD,
+                              const double* __restrict in,
+                              double* __restrict out){
+      push();
+      for(int e=0; e<numElements; e+=1){
+         dbg("elem #%d",e);
+         double s_in[2 * NUM_DOFS];
+         for (int q = 0; q < NUM_QUAD; ++q) {
+            dbg("\tq #%d",q);
+            for (int d = q; d < NUM_DOFS; d+=NUM_QUAD) {
+               dbg("\t\td=%d",d);
+               const int x0 = ijN(0,d,2);
+               const int x1 = ijkNM(0,d,e,2,NUM_DOFS);
+               const int y0 = ijN(1,d,2);
+               const int y1 = ijkNM(1,d,e,2,NUM_DOFS);
+               const double x = in[ijkNM(0,d,e,2,NUM_DOFS)];
+               const double y = in[ijkNM(1,d,e,2,NUM_DOFS)];
+               dbg("\t\t%d <= %d: %f",x0,x1,x);
+               dbg("\t\t%d <= %d: %f",y0,y1,y);
+               s_in[ijN(0,d,2)] = in[ijkNM(0,d,e,2,NUM_DOFS)];
+               s_in[ijN(1,d,2)] = in[ijkNM(1,d,e,2,NUM_DOFS)];
+            }
+         }
+         dbg("eof share, returning to elem #%d",e);
+         for (int q = 0; q < NUM_QUAD; ++q) {
+            dbg("\tq #%d",q);
+            double J11 = 0.0; double J12 = 0.0;
+            double J21 = 0.0; double J22 = 0.0;
+            for (int d = 0; d < NUM_DOFS; ++d) {
+               dbg("\t\td=%d",d);
+               const double wx = dofToQuadD[ijkNM(0,q,d,2,NUM_QUAD)];
+               const double wy = dofToQuadD[ijkNM(1,q,d,2,NUM_QUAD)];
+               const double x = s_in[ijN(0,d,2)];
+               const double y = s_in[ijN(1,d,2)];
+               dbg("\t\twx=%f, wy=%f",wx,wy);
+               dbg("\t\t x=%f,  y=%f", x, y);
+               J11 += (wx * x); J12 += (wx * y);
+               J21 += (wy * x); J22 += (wy * y);
+            }
+            out[ijklNM(0,0,q,e,2,NUM_QUAD)] = J11;
+            out[ijklNM(1,0,q,e,2,NUM_QUAD)] = J12;
+            out[ijklNM(0,1,q,e,2,NUM_QUAD)] = J21;
+            out[ijklNM(1,1,q,e,2,NUM_QUAD)] = J22;
+         }
+      }
+      pop();
+   }
+
+   // **************************************************************************
+   static void reorderByVDim(const FiniteElementSpace& fes,
+                             const size_t size,
+                             double *data){
+      push();
+      const int vdim = fes.GetVDim();
+      const int ndofs = fes.GetNDofs();
+      dbg("size=%d",size);    
+      dbg("vdim=%d ndofs=%d",vdim, ndofs);
+      double *temp = new double[size];
+      for (int k=0; k<size; k++) temp[k]=0.0;
+      int k=0;
+      for (int d = 0; d < ndofs; d++)
+         for (int v = 0; v < vdim; v++)      
+            temp[k++] = data[d+v*ndofs];
+      for (int i=0; i<size; i++){
+         data[i] = temp[i];
+         dbg("data[%d]=%f",i,data[i]);
+      }
+      delete [] temp;
+      pop();
+   }
+
+   // ***************************************************************************
+   static void reorderByNodes(const FiniteElementSpace& fes,
+                              const size_t size,
+                              double *data){
+      push();
+      const int vdim = fes.GetVDim();
+      const int ndofs = fes.GetNDofs();
+      dbg("size=%d",size);      
+      dbg("vdim=%d ndofs=%d",vdim, ndofs);      
+      double *temp = new double[size];
+      for (int k=0; k<size; k++) temp[k]=0.0;
+      int k=0;
+      for (int j=0; j < ndofs; j++)
+         for (int i=0; i < vdim; i++)
+            temp[j+i*ndofs] = data[k++];
+      for (int i = 0; i < size; i++){
+         data[i] = temp[i];
+         dbg("data[%d]=%f",i,data[i]);
+      }
+      delete [] temp;
+      pop();
+   }
+
+   // **************************************************************************
+   void qGradVector(const FiniteElementSpace& fes,
+                    const IntegrationRule& ir,
+                    const qDofQuadMaps* maps,
+                    const size_t size,
+                    double *in,
+                    double *out){
+      push();
+      const mfem::FiniteElement &fe = *(fes.GetFE(0));
+      const int dim = fe.GetDim(); assert(dim==2);
+      const int ndf  = fe.GetDof();
+      const int nqp  = ir.GetNPoints();
+      const int nzones = fes.GetNE();
+      //const bool orderedByNODES = (fes.GetOrdering() == Ordering::byNODES);
+      
+      /*if (orderedByNODES) {
+         dbg("\033[7morderedByNODES, ReorderByVDim");
+         reorderByVDim(fes, size, in);
+         }*/
+      
+      qGradVector2D(ndf, nqp, nzones,
+                    maps->dofToQuadD,
+                    in, out);
+      
+      /*if (orderedByNODES) {
+         dbg("Reorder the original gf back");
+         reorderByNodes(fes, size, in);
+         }*/
+      pop();
+   }
+
    
    // **************************************************************************
    void QUpdate(const int dim,
@@ -96,7 +226,6 @@ namespace hydrodynamics {
                 const bool use_viscosity,
                 const bool p_assembly,
                 const double cfl,
-                //const ParGridFunction &rho,
                 TimingData &timer,
                 Coefficient *material_pcf,
                 const IntegrationRule &integ_rule,
@@ -118,15 +247,21 @@ namespace hydrodynamics {
       timer.sw_qdata.Start();
 
       const int nqp = integ_rule.GetNPoints();
-      dbg("nqp=%d",nqp);
+      dbg("nqp=%d, nzones=%d",nqp,nzones);
 
       ParGridFunction x, velocity, energy;
       Vector* sptr = (Vector*) &S;
+      
       x.MakeRef(&H1FESpace, *sptr, 0);
 //#warning x for(int i=0;i<x.Size();i+=1) x[i] = 1.123456789*drand48();
          //dbg("x (size=%d)",x.Size());//x.Print();
+      
       velocity.MakeRef(&H1FESpace, *sptr, H1FESpace.GetVSize());
-      //dbg("velocity (size=%d)",velocity.Size());//velocity.Print();
+//#warning v
+//      srand48(0xDEADBEEFul);
+//      for(int i=0;i<velocity.Size();i+=1) velocity[i] = 0.123456789*drand48();
+//      dbg("velocity (size=%d)",velocity.Size());velocity.Print();
+      
       energy.MakeRef(&L2FESpace, *sptr, 2*H1FESpace.GetVSize());
       //dbg("energy (size=%d)",energy.Size());//energy.Print();
       
@@ -149,7 +284,7 @@ namespace hydrodynamics {
       Vector e_vals(nqp);
       Vector e_quads(nzones * nqp);
       if (use_external_e)
-         dof2quad(L2FESpace, integ_rule, energy.GetData(), e_quads.GetData());
+         d2q(L2FESpace, integ_rule, energy.GetData(), e_quads.GetData());
 
       // Jacobian **************************************************************
       DenseTensor Jpr(dim, dim, nqp);
@@ -167,22 +302,85 @@ namespace hydrodynamics {
       if (use_external_w){
          maps = qDofQuadMaps::Get(H1FESpace,integ_rule);
          weights.SetDataAndSize((double*)maps->quadWeights.ptr(),nqp);
-         /*
-         for (int k = 0; k < nqp; k++) {
-            dbg("w[%d]=%f",k,weights[k]);
-         }
-         for (int z = 0; z < nzones; z++) {
-            for (int q = 0; q < nqp; q++) {
-               const IntegrationPoint &ip = integ_rule.IntPoint(q);
-               T->SetIntPoint(&ip);
-               const double weight = ip.weight;
-               dbg("(%d,%d) w=%f",z,q,weight);
-            }
-         }
-         assert(false);
-         */
       }
 
+      // Velocity **************************************************************
+      const bool use_external_grad_v = true;
+      Vector grad_v_ext;
+      if (use_external_grad_v){
+         
+         const mfem::FiniteElement& fe = *H1FESpace.GetFE(0);
+         const int dims     = H1FESpace.GetVDim();
+         const int elements = H1FESpace.GetNE();
+         const int numDofs  = fe.GetDof();
+         
+         //dbg("velocity:\n");velocity.Print();
+         reorderByVDim(H1FESpace, velocity.Size(), velocity.GetData());
+         //dbg("reorderByVDim:");velocity.Print();
+        
+         const size_t v_local_size = dims * numDofs * elements;
+         mfem::Array<double> local_velocity(v_local_size);
+         const Table& e2dTable = H1FESpace.GetElementToDofTable();
+         const int* elementMap = e2dTable.GetJ();
+
+         for (int e = 0; e < elements; ++e) {
+            for (int d = 0; d < numDofs; ++d) {
+               const int lid = d+numDofs*e;
+               const int gid = elementMap[lid];
+               for (int v = 0; v < dims; ++v) {
+                  const int moffset = v+dims*lid;
+                  const int xoffset = v+dims*gid;
+                  local_velocity[moffset] = velocity[xoffset];
+               }
+            }
+         }
+         //dbg("local_velocity:");local_velocity.Print();
+
+         //dbg("dims=%d, elements=%d, numDofs=%d, v_local_size=%d",dims, elements, numDofs, v_local_size);
+         Vector v_local(v_local_size);
+         v_local = local_velocity;
+         //dbg("v_local:");v_local.Print();
+        
+         reorderByNodes(H1FESpace, velocity.Size(), velocity.GetData());
+         
+         //globalToLocal(H1FESpace,velocity.GetData(),v_local.GetData(),false);
+         //dbg("v_local:");v_local.Print();
+
+         const size_t grad_v_size = dim * dim * nqp * nzones;
+         grad_v_ext.SetSize(grad_v_size);
+         //dbg("grad_v_size=%d",grad_v_size);
+         
+         maps = qDofQuadMaps::GetSimplexMaps(fe,integ_rule);
+         
+         qGradVector(H1FESpace,
+                     integ_rule,
+                     maps,
+                     v_local_size,
+                     v_local.GetData(),
+                     grad_v_ext.GetData());
+         
+         //dbg("grad_v_ext:\n");grad_v_ext.Print();
+                  
+         //assert(false);
+/*
+         for (int z = 0; z < nzones; z++) {
+            H1FESpace.GetElementVDofs(z, H1dofs);
+            velocity.GetSubVector(H1dofs, vector_loc);
+            //dbg("(z=%d) vector_loc:",z);vector_loc.Print();
+            getVectorGrad(dim, nH1dof1D, nqp1D, h1_dof_map, vector_loc_mtx, grad_v_ref);
+            for (int q = 0; q < nqp; q++) {
+               DenseMatrix qgrad_v_ext(&grad_v_ext.GetData()[(z*nqp+q)*nzones],dim,dim);
+               dbg("(%d,%d) grad_v_ref:",z,q);
+               grad_v_ref(q).Print();
+               dbg("\033[7mVERSUS:");               
+               qgrad_v_ext.Print();
+            }
+            }
+*/
+         
+         //assert(false);
+      }
+   
       // ***********************************************************************
       const double h1order = (double) H1FESpace.GetOrder(0);
       const double infinity = std::numeric_limits<double>::infinity();
@@ -208,9 +406,11 @@ namespace hydrodynamics {
 
          // Velocity gradient at quadrature points *****************************
          if (use_viscosity) {
-            H1FESpace.GetElementVDofs(z, H1dofs);
-            velocity.GetSubVector(H1dofs, vector_loc);
-            getVectorGrad(dim, nH1dof1D, nqp1D, h1_dof_map, vector_loc_mtx, grad_v_ref);
+            if (!use_external_grad_v){
+               H1FESpace.GetElementVDofs(z, H1dofs);
+               velocity.GetSubVector(H1dofs, vector_loc);
+               getVectorGrad(dim, nH1dof1D, nqp1D, h1_dof_map, vector_loc_mtx, grad_v_ref);
+            }
          }
          
          // ********************************************************************
@@ -248,9 +448,11 @@ namespace hydrodynamics {
                // Compression-based length scale at the point. The first
                // eigenvector of the symmetric velocity gradient gives the
                // direction of maximal compression. This is used to define the
-               // relative change of the initial length scale.
+               // relative change of the initial length scale.               
+               const DenseMatrix &dV = !use_external_grad_v? grad_v_ref(q):
+                  DenseMatrix(&grad_v_ext.GetData()[(z*nqp+q)*nzones],dim,dim);                  
                mult(sgrad_v.Height(),sgrad_v.Width(),grad_v_ref(q).Width(),
-                    grad_v_ref(q).Data(), Jinv.Data(), sgrad_v.Data());
+                    dV.Data(), Jinv.Data(), sgrad_v.Data());
                symmetrize(sgrad_v.Height(),sgrad_v.Data());
                double eig_val_data[3], eig_vec_data[9];
                if (dim==1) {

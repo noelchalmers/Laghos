@@ -129,7 +129,7 @@ qGeometry* qGeometry::Get(FiniteElementSpace& fes,
    dbg("orderedByNODES: %s", orderedByNODES?"true":"false");
    
    if (orderedByNODES) {
-      dbg("orderedByNODES, ReorderByVDim");
+      dbg("\033[7morderedByNODES, ReorderByVDim");
       ReorderByVDim(nodes);
    }
    const int asize = dims*numDofs*elements;

@@ -68,7 +68,6 @@ namespace hydrodynamics {
                 const bool use_viscosity,
                 const bool p_assembly,
                 const double cfl,
-                //const ParGridFunction &rho,
                 TimingData &timer,
                 Coefficient *material_pcf,
                 const IntegrationRule &integ_rule,
@@ -90,11 +89,12 @@ namespace hydrodynamics {
    
    // **************************************************************************
    int *global2LocalMap(ParFiniteElementSpace&);
-   void globalToLocal(ParFiniteElementSpace&, const double*, double*);
+   void globalToLocal(ParFiniteElementSpace&, const double*, double*,
+                      const bool =false);
 
    // **************************************************************************
-   void dof2quad(ParFiniteElementSpace&, const IntegrationRule&,
-                 const double*, double*);
+   void d2q(ParFiniteElementSpace&, const IntegrationRule&,
+            const double*, double*);
 
 } // namespace hydrodynamics
 

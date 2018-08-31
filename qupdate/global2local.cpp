@@ -100,12 +100,12 @@ namespace hydrodynamics
    // **************************************************************************
    void globalToLocal(ParFiniteElementSpace &fes,
                       const double *globalVec,
-                      double *localVec) {
+                      double *localVec,
+                      const bool ordering) {
       const int vdim = fes.GetVDim(); assert(vdim==2);
       const int localDofs = fes.GetFE(0)->GetDof();
       const int globalDofs = fes.GetNDofs();
       const int localEntries = localDofs * fes.GetNE();
-      const bool ordering = false;
       mfem::Array<int> offsets,indices;
       offsetNindices(fes,offsets,indices); // should be stored
       //dbg("offsets:");offsets.Print();
