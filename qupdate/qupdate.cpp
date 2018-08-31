@@ -122,20 +122,18 @@ namespace hydrodynamics {
       ParGridFunction x, velocity, energy;
       Vector* sptr = (Vector*) &S;
       x.MakeRef(&H1FESpace, *sptr, 0);
-//#warning x      for(int i=0;i<x.Size();i+=1) x[i]=i;
-      dbg("x (size=%d)",x.Size());//x.Print();
+//#warning x for(int i=0;i<x.Size();i+=1) x[i] = 1.123456789*drand48();
+         //dbg("x (size=%d)",x.Size());//x.Print();
       velocity.MakeRef(&H1FESpace, *sptr, H1FESpace.GetVSize());
-      dbg("velocity (size=%d)",velocity.Size());//velocity.Print();
+      //dbg("velocity (size=%d)",velocity.Size());//velocity.Print();
       energy.MakeRef(&L2FESpace, *sptr, 2*H1FESpace.GetVSize());
-      dbg("energy (size=%d)",energy.Size());//energy.Print();
+      //dbg("energy (size=%d)",energy.Size());//energy.Print();
       
       Vector e_loc(l2dofs_cnt), vector_loc(h1dofs_cnt * dim);
       DenseMatrix Jpi(dim), sgrad_v(dim), Jinv(dim), stress(dim), stressJiT(dim);
       DenseMatrix vector_loc_mtx(vector_loc.GetData(), h1dofs_cnt, dim);
       DenseTensor grad_v_ref(dim, dim, nqp);
       Array<int> L2dofs, H1dofs;
-      DenseTensor Jpr;
-      Jpr.SetSize(dim, dim, nqp);
 
       const H1_QuadrilateralElement *fe =
          dynamic_cast<const H1_QuadrilateralElement *>(H1FESpace.GetFE(0));
@@ -152,24 +150,82 @@ namespace hydrodynamics {
       if (use_external_e)
          dof2quad(L2FESpace, integ_rule, energy.GetData(), e_quads.GetData());
 
-      // ***********************************************************************
+      // Jacobian **************************************************************
+      DenseTensor Jpr;
+      Jpr.SetSize(dim, dim, nqp);
       qGeometry *geom = qGeometry::Get(H1FESpace,integ_rule);
-      //for(int i=0;i<4;i+=1) printf("\n\tgeom->J;=%f",geom->J[i]);
-      //assert(false);
+/*
+      //const size_t Jsz = dim*dim*nqp*nzones;
+      //for(int k=0; k<Jsz; k++) dbg("%f",geom->J[k]);
+      for(int z=0; z < nzones; z++){
+         printf("\nzone %d",z);
+         for(int q=0; q < nqp; q++) {
+            printf("\n\tquad %d",q);
+            const double J00 = geom->J[(z*nqp+q)*nzones+0];
+            const double J10 = geom->J[(z*nqp+q)*nzones+1];
+            const double J01 = geom->J[(z*nqp+q)*nzones+2];
+            const double J11 = geom->J[(z*nqp+q)*nzones+3];
+            printf("\n\t\tJ(%d,%d) %f %f",z,q,J00,J01);
+            printf("\n\t\tJ(%d,%d) %f %f",z,q,J10,J11);
+         }
+      }
+      assert(false);
       
+      for(int z=0; z < nzones; z++) {
+         printf("\nzone %d",z);
+         ElementTransformation *T = H1FESpace.GetElementTransformation(z);
+         H1FESpace.GetElementVDofs(z, H1dofs);
+         x.GetSubVector(H1dofs, vector_loc);
+         getVectorGrad(dim, nH1dof1D, nqp1D, h1_dof_map, vector_loc_mtx, Jpr);
+         for(int q=0; q < nqp; q++) {
+            printf("\n\tquad %d",q);
+            const double J00 = Jpr(q)(0,0);
+            const double J10 = Jpr(q)(1,0);
+            const double J01 = Jpr(q)(0,1);
+            const double J11 = Jpr(q)(1,1);
+            printf("\n\t\tJpr(%d,%d) %f %f",z,q,J00,J01);
+            printf("\n\t\tJpr(%d,%d) %f %f",z,q,J10,J11);
+         }
+      }
+      assert(false);
+      */
       
       // ***********************************************************************
-      const bool use_external_v = false;
-      //assert(!use_external_v); // not working yet
-      Vector JprX;
-      const int H1localDofs = H1FESpace.GetFE(0)->GetDof();
-      assert(H1localDofs == nH1dof1D*nH1dof1D);
-      if (use_external_v){
-         JprX.SetSize(dim*H1localDofs*nzones);
-         globalToLocal(H1FESpace,x.GetData(),JprX.GetData());
-         //dbg("JprX:");JprX.Print();
+      const bool use_external_J = true;
+/*
+      {
+         for(int z=0; z < nzones; z++) {
+            ElementTransformation *T = H1FESpace.GetElementTransformation(z);
+            H1FESpace.GetElementVDofs(z, H1dofs);
+            //dbg("\nH1dofs:\n");H1dofs.Print();
+            x.GetSubVector(H1dofs, vector_loc);
+            //dbg("\nvector_loc (z=%d):\n",z);vector_loc.Print();
+            getVectorGrad(dim, nH1dof1D, nqp1D, h1_dof_map, vector_loc_mtx, Jpr);
+            for(int q=0; q < nqp; q++) {
+               const DenseMatrix &J = DenseMatrix(&geom->J[(z*nqp+q)*nzones],dim,dim);
+               //dbg("Jpr (z=%d, q=%d):",z,q); Jpr(q).Print();
+               //dbg("vs J:"); J.Print();
+               if (fabs(Jpr(q)(0,0)-J(0,0))>1.e-14){
+                  dbg("Jpr(q)(0,0)=%.21e %.21e=J(0,0):",Jpr(q)(0,0),J(0,0));
+                  assert(false);
+               }
+               if (fabs(Jpr(q)(1,0)-J(1,0))>1.e-14){
+                  dbg("Jpr(q)(1,0)=%.21e %.21e=J(1,0):",Jpr(q)(1,0),J(1,0));
+                  assert(false);
+               }
+               if (fabs(Jpr(q)(0,1)-J(0,1))>1.e-14){
+                  dbg("Jpr(q)(0,1)=%.21e %.21e=J(0,1):",Jpr(q)(0,1),J(0,1));
+                  assert(false);
+               }
+               if (fabs(Jpr(q)(1,1)-J(1,1))>1.e-14){
+                  dbg("Jpr(q)(1,1)=%.21e %.21e=J(1,1):",Jpr(q)(1,1),J(1,1));
+                  assert(false);
+               }
+           }
+         }
+         assert(false);
       }
-      
+*/
       const double h1order = (double) H1FESpace.GetOrder(0);
       const double infinity = std::numeric_limits<double>::infinity();
       double min_detJ = infinity;
@@ -188,14 +244,13 @@ namespace hydrodynamics {
          }
  
          // Jacobians at quadrature points *************************************
-         if (!use_external_v){
+         if (!use_external_J)
+         {
             H1FESpace.GetElementVDofs(z, H1dofs);
             //dbg("\nH1dofs:\n");H1dofs.Print();
             x.GetSubVector(H1dofs, vector_loc);
-            //dbg("\nvector_loc (z=%d):\n",z);vector_loc.Print();           
-            //assert(false);
+            //dbg("\nvector_loc (z=%d):\n",z);vector_loc.Print();
             getVectorGrad(dim, nH1dof1D, nqp1D, h1_dof_map, vector_loc_mtx, Jpr);
-            //for(int q=0; q < nqp; q++) dbg("\nJpr (z=%d, q=%d):\n",z,q);Jpr(q).Print();
          }
 
          // Velocity gradient at quadrature points *****************************
@@ -213,8 +268,8 @@ namespace hydrodynamics {
             const double weight = ip.weight;
             const double inv_weight = 1. / weight;
 
-            const DenseMatrix &J = !use_external_v? Jpr(q):
-               DenseMatrix(&JprX.GetData()[z*dim*H1localDofs+q],dim,dim);
+            const DenseMatrix &J = !use_external_J? Jpr(q):
+               DenseMatrix(&geom->J[(z*nqp+q)*nzones],dim,dim);
 
             const double detJ = J.Det();
             min_detJ = fmin(min_detJ, detJ);   
