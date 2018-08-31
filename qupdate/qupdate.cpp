@@ -96,6 +96,7 @@ namespace hydrodynamics {
                 const bool use_viscosity,
                 const bool p_assembly,
                 const double cfl,
+                //const ParGridFunction &rho,
                 TimingData &timer,
                 Coefficient *material_pcf,
                 const IntegrationRule &integ_rule,
@@ -151,81 +152,38 @@ namespace hydrodynamics {
          dof2quad(L2FESpace, integ_rule, energy.GetData(), e_quads.GetData());
 
       // Jacobian **************************************************************
-      DenseTensor Jpr;
-      Jpr.SetSize(dim, dim, nqp);
-      qGeometry *geom = qGeometry::Get(H1FESpace,integ_rule);
-/*
-      //const size_t Jsz = dim*dim*nqp*nzones;
-      //for(int k=0; k<Jsz; k++) dbg("%f",geom->J[k]);
-      for(int z=0; z < nzones; z++){
-         printf("\nzone %d",z);
-         for(int q=0; q < nqp; q++) {
-            printf("\n\tquad %d",q);
-            const double J00 = geom->J[(z*nqp+q)*nzones+0];
-            const double J10 = geom->J[(z*nqp+q)*nzones+1];
-            const double J01 = geom->J[(z*nqp+q)*nzones+2];
-            const double J11 = geom->J[(z*nqp+q)*nzones+3];
-            printf("\n\t\tJ(%d,%d) %f %f",z,q,J00,J01);
-            printf("\n\t\tJ(%d,%d) %f %f",z,q,J10,J11);
-         }
-      }
-      assert(false);
-      
-      for(int z=0; z < nzones; z++) {
-         printf("\nzone %d",z);
-         ElementTransformation *T = H1FESpace.GetElementTransformation(z);
-         H1FESpace.GetElementVDofs(z, H1dofs);
-         x.GetSubVector(H1dofs, vector_loc);
-         getVectorGrad(dim, nH1dof1D, nqp1D, h1_dof_map, vector_loc_mtx, Jpr);
-         for(int q=0; q < nqp; q++) {
-            printf("\n\tquad %d",q);
-            const double J00 = Jpr(q)(0,0);
-            const double J10 = Jpr(q)(1,0);
-            const double J01 = Jpr(q)(0,1);
-            const double J11 = Jpr(q)(1,1);
-            printf("\n\t\tJpr(%d,%d) %f %f",z,q,J00,J01);
-            printf("\n\t\tJpr(%d,%d) %f %f",z,q,J10,J11);
-         }
-      }
-      assert(false);
-      */
-      
+      DenseTensor Jpr(dim, dim, nqp);
+
       // ***********************************************************************
       const bool use_external_J = true;
-/*
-      {
-         for(int z=0; z < nzones; z++) {
-            ElementTransformation *T = H1FESpace.GetElementTransformation(z);
-            H1FESpace.GetElementVDofs(z, H1dofs);
-            //dbg("\nH1dofs:\n");H1dofs.Print();
-            x.GetSubVector(H1dofs, vector_loc);
-            //dbg("\nvector_loc (z=%d):\n",z);vector_loc.Print();
-            getVectorGrad(dim, nH1dof1D, nqp1D, h1_dof_map, vector_loc_mtx, Jpr);
-            for(int q=0; q < nqp; q++) {
-               const DenseMatrix &J = DenseMatrix(&geom->J[(z*nqp+q)*nzones],dim,dim);
-               //dbg("Jpr (z=%d, q=%d):",z,q); Jpr(q).Print();
-               //dbg("vs J:"); J.Print();
-               if (fabs(Jpr(q)(0,0)-J(0,0))>1.e-14){
-                  dbg("Jpr(q)(0,0)=%.21e %.21e=J(0,0):",Jpr(q)(0,0),J(0,0));
-                  assert(false);
-               }
-               if (fabs(Jpr(q)(1,0)-J(1,0))>1.e-14){
-                  dbg("Jpr(q)(1,0)=%.21e %.21e=J(1,0):",Jpr(q)(1,0),J(1,0));
-                  assert(false);
-               }
-               if (fabs(Jpr(q)(0,1)-J(0,1))>1.e-14){
-                  dbg("Jpr(q)(0,1)=%.21e %.21e=J(0,1):",Jpr(q)(0,1),J(0,1));
-                  assert(false);
-               }
-               if (fabs(Jpr(q)(1,1)-J(1,1))>1.e-14){
-                  dbg("Jpr(q)(1,1)=%.21e %.21e=J(1,1):",Jpr(q)(1,1),J(1,1));
-                  assert(false);
-               }
-           }
+      qGeometry *geom;
+      if (use_external_J)
+         geom = qGeometry::Get(H1FESpace,integ_rule);
+
+      // IP Weights ************************************************************
+      Vector weights;
+      const bool use_external_w = true;
+      const qDofQuadMaps* maps;
+      if (use_external_w){
+         maps = qDofQuadMaps::Get(H1FESpace,integ_rule);
+         weights.SetDataAndSize((double*)maps->quadWeights.ptr(),nqp);
+         /*
+         for (int k = 0; k < nqp; k++) {
+            dbg("w[%d]=%f",k,weights[k]);
+         }
+         for (int z = 0; z < nzones; z++) {
+            for (int q = 0; q < nqp; q++) {
+               const IntegrationPoint &ip = integ_rule.IntPoint(q);
+               T->SetIntPoint(&ip);
+               const double weight = ip.weight;
+               dbg("(%d,%d) w=%f",z,q,weight);
+            }
          }
          assert(false);
+         */
       }
-*/
+
+      // ***********************************************************************
       const double h1order = (double) H1FESpace.GetOrder(0);
       const double infinity = std::numeric_limits<double>::infinity();
       double min_detJ = infinity;
@@ -236,20 +194,15 @@ namespace hydrodynamics {
          // Energy values at quadrature point **********************************
          if (!use_external_e){
             L2FESpace.GetElementDofs(z, L2dofs);
-            //dbg("\nL2dofs:\n");L2dofs.Print();
             energy.GetSubVector(L2dofs, e_loc);
-            //dbg("\ne_loc (z=%d):\n",z); e_loc.Print();
             getL2Values(dim, nL2dof1D, nqp1D, e_loc.GetData(), e_vals.GetData());
-            //dbg("\ne_vals (z=%d):\n",z); e_vals.Print();
          }
  
          // Jacobians at quadrature points *************************************
          if (!use_external_J)
          {
             H1FESpace.GetElementVDofs(z, H1dofs);
-            //dbg("\nH1dofs:\n");H1dofs.Print();
             x.GetSubVector(H1dofs, vector_loc);
-            //dbg("\nvector_loc (z=%d):\n",z);vector_loc.Print();
             getVectorGrad(dim, nH1dof1D, nqp1D, h1_dof_map, vector_loc_mtx, Jpr);
          }
 
@@ -263,9 +216,13 @@ namespace hydrodynamics {
          // ********************************************************************
          for (int q = 0; q < nqp; q++) {
             const int idx = z * nqp + q;
-            const IntegrationPoint &ip = integ_rule.IntPoint(q);
-            T->SetIntPoint(&ip);
-            const double weight = ip.weight;
+            double ip_w = 0.0;
+            if (!use_external_w){
+               const IntegrationPoint &ip = integ_rule.IntPoint(q);
+               T->SetIntPoint(&ip);
+               ip_w = ip.weight;
+            }
+            const double weight = (!use_external_w) ? ip_w : weights[q];
             const double inv_weight = 1. / weight;
 
             const DenseMatrix &J = !use_external_J? Jpr(q):
