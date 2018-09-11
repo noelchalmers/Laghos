@@ -370,22 +370,18 @@ void LagrangianHydroOperator::Mult(const Vector &S, Vector &dS_dt) const
       }
       else
       {
-         dbg("\033[7mCGSolver H1FESpace");
          // Partial assembly solve for each velocity component
          const int size = H1compFESpace.GetVSize();
          kMassPAOperator *kVMassPA = static_cast<kMassPAOperator*>(VMassPA);
 
-         dbg("\033[7mfor loop");
          for (int c = 0; c < dim; c++)
          {
             dbg("\033[7mdim #%d",c);
             dbg("\033[7mrhs_c:");
             rhs_c.MakeRefOffset(rhs, c*size);
             
-            //dbg("\033[7mdv_c:");
-            //dv_c.MakeRefOffset(dv, c*size);
-            //dv_c.Pull();dbg("dv_c:\n"); dv_c.Print();//assert(__FILE__ && __LINE__ && false);
-            //dv_c.Push();
+            //rhs_c.Pull();dbg("rhs_c:\n"); rhs_c.Print();assert(__FILE__ && __LINE__ && false);
+            //rhs_c.Push();
             
             Array<int> c_tdofs;
             const int bdr_attr_max = H1FESpace.GetMesh()->bdr_attributes.Max();
@@ -394,14 +390,17 @@ void LagrangianHydroOperator::Mult(const Vector &S, Vector &dS_dt) const
             // Attributes 1/2/3 correspond to fixed-x/y/z boundaries, i.e.,
             // we must enforce v_x/y/z = 0 for the velocity components.
             ess_bdr = 0; ess_bdr[c] = 1;
-            dbg("Essential true dofs as if there's only one component.");
+            // Essential true dofs as if there's only one component.
             H1compFESpace.GetEssentialTrueDofs(ess_bdr, c_tdofs);
 
             dv_c.Fill(0.0);
 
-            dbg("GetProlongationOperator->MultTranspose");
+            // *****************************************************************
+            //rhs_c.Pull();dbg("rhs_c:\n"); rhs_c.Print();//assert(__FILE__ && __LINE__ && false);
             H1compFESpace.Get_PFESpace()->As<kernels::kFiniteElementSpace>().
                GetProlongationOperator()->MultTranspose(rhs_c, B);
+            //B.Pull();dbg("B:\n"); B.Print();assert(__FILE__ && __LINE__ && false);
+            
             dbg("GetRestrictionOperator->Mult");
             H1compFESpace.Get_PFESpace()->As<kernels::kFiniteElementSpace>().
                GetRestrictionOperator()->Mult(dv_c, X);
@@ -441,7 +440,7 @@ void LagrangianHydroOperator::Mult(const Vector &S, Vector &dS_dt) const
 
 #warning dv_c 2 dv memcpy
             memcpy(dv.GetData()+c*size, dv_c.GetData(), size*sizeof(double));
-            //dbg("dv:\n"); dv.Print();//assert(__FILE__&&__LINE__&&false);
+            //dbg("dv:\n"); dv.Print();assert(__FILE__&&__LINE__&&false);
          }
          dbg("\033[7mend of for loop");
       } // engine

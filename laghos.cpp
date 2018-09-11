@@ -260,7 +260,7 @@ int main(int argc, char *argv[])
    { cout << "Zones min/max: " << nzones_min << " " << nzones_max << endl; }
 
 
-   dbg("Define the parallel finite element spaces");//. We use:
+   // Define the parallel finite element spaces. We use:
    // - H1 (Gauss-Lobatto, continuous) for position and velocity.
    // - L2 (Bernstein, discontinuous) for specific internal energy.
    L2_FECollection L2FEC(order_e, dim, BasisType::Positive);
@@ -268,18 +268,16 @@ int main(int argc, char *argv[])
    ParFiniteElementSpace L2FESpace(pmesh, &L2FEC);
    ParFiniteElementSpace H1FESpace(pmesh, &H1FEC, pmesh->Dimension());
 
-   dbg("Boundary conditions");//: all tests use v.n = 0 on the boundary, and we assume
+   // Boundary conditions: all tests use v.n = 0 on the boundary, and we assume
    // that the boundaries are straight.
    Array<int> ess_tdofs;
    {
       Array<int> ess_bdr(pmesh->bdr_attributes.Max()), tdofs1d;
       for (int d = 0; d < pmesh->Dimension(); d++)
       {
-         dbg("#d=%d",d);
          // Attributes 1/2/3 correspond to fixed-x/y/z boundaries, i.e., we must
          // enforce v_x/y/z = 0 for the velocity components.
          ess_bdr = 0; ess_bdr[d] = 1;
-         dbg("H1FESpace.GetEssentialTrueDofs");
          H1FESpace.GetEssentialTrueDofs(ess_bdr, tdofs1d, d);
          ess_tdofs.Append(tdofs1d);
       }
@@ -318,7 +316,7 @@ int main(int argc, char *argv[])
    int Vsize_l2 = L2FESpace.GetVSize();
    int Vsize_h1 = H1FESpace.GetVSize();
 
-   dbg("The monolithic BlockVector");// stores unknown fields as:
+   // The monolithic BlockVector stores unknown fields as:
    // - 0 -> position
    // - 1 -> velocity
    // - 2 -> specific internal energy
@@ -329,14 +327,7 @@ int main(int argc, char *argv[])
    true_offset[2] = true_offset[1] + Vsize_h1;
    true_offset[3] = true_offset[2] + Vsize_l2;
    BlockVector S(true_offset);
-   /* if (engine) {
-       const mfem::Engine &ng = pmesh->GetEngine();
-       S.Resize(ng.MakeLayout(2*Vsize_h1+Vsize_l2));
-       S.Pull(false);
-       //S.Fill(0.0);
-       //S.Push();
-       }*/
-  
+
    // Define GridFunction objects for the position, velocity and specific
    // internal energy.  There is no function for the density, as we can always
    // compute the density values given the current mesh position, using the
@@ -350,7 +341,7 @@ int main(int argc, char *argv[])
    // mesh positions to the values in x_gf.
    pmesh->SetNodalGridFunction(&x_gf);
 
-   dbg("Initialize the velocity.");
+   // Initialize the velocity.
    VectorFunctionCoefficient v_coeff(pmesh->Dimension(), v0);
    v_gf.ProjectCoefficient(v_coeff);
 
@@ -449,7 +440,7 @@ int main(int argc, char *argv[])
       visit_dc.Save();
    }
 
-   dbg("Perform time-integration");// (looping over the time iterations, ti, with a
+   // Perform time-integration (looping over the time iterations, ti, with a
    // time-step dt). The object oper is of type LagrangianHydroOperator that
    // defines the Mult() method that used by the time integrators.
    ode_solver->Init(oper);
@@ -457,15 +448,7 @@ int main(int argc, char *argv[])
    double t = 0.0, dt = oper.GetTimeStepEstimate(S), t_old;
    bool last_step = false;
    int steps = 0;
-   dbg("BlockVector S_old(S);");
    BlockVector S_old(S);
-   /*if (engine) {
-      const mfem::Engine &ng = pmesh->GetEngine();
-      S_old.Resize(ng.MakeLayout(2*Vsize_h1+Vsize_l2));
-      S_old.Pull(false);
-   }*/
-   
-   dbg("for-loop");
    for (int ti = 1; !last_step; ti++)
    {
       if (t + dt >= t_final)
@@ -475,15 +458,12 @@ int main(int argc, char *argv[])
       }
       if (steps == max_tsteps) { last_step = true; }
 
-      dbg("S_old");
       S_old = S;
-      dbg("t_old");
       t_old = t;
       oper.ResetTimeStepEstimate();
 
       // S is the vector of dofs, t is the current time, and dt is the time step
       // to advance.
-      dbg("ode_solver->Step");
       ode_solver->Step(S, t, dt);
       steps++;
 
