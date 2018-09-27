@@ -11,7 +11,7 @@
 #include "../raja.hpp"
 
 namespace mfem {
-  
+
 RajaVector::~RajaVector(){
   if (!own) return;
   dbg("\033[33m[~v");
@@ -28,7 +28,7 @@ double* RajaVector::alloc(const size_t sz) {
   void RajaVector::SetSize(const size_t sz, const void* ptr) {
   own=true;
   size = sz;
-  if (!data) data = alloc(sz); 
+  if (!data) data = alloc(sz);
   if (ptr) rDtoD(data,ptr,bytes());
 }
 
@@ -45,7 +45,7 @@ RajaVector::RajaVector(const RajaVector& v):
   size(0),data(NULL),own(true) { SetSize(v.Size(), v); }
 
 RajaVector::RajaVector(const RajaVector *v):size(v->size),data(v->data),own(false){}
-  
+
 RajaVector::RajaVector(RajaArray<double>& v):size(v.size()),data(v.ptr()),own(false){}
 
 // Host 2 Device ***************************************************************
@@ -56,7 +56,9 @@ RajaVector::RajaVector(const Vector& v):size(v.Size()),data(alloc(size)),own(tru
 
 // Device 2 Host ***************************************************************
 RajaVector::operator Vector() {
-  if (!rconfig::Get().Cuda()) return Vector(data,size);
+  if (!rconfig::Get().Cuda() && !rconfig::Get().Hip())
+    return Vector(data,size);
+
   double *h_data= (double*) ::malloc(bytes());
   rmemcpy::rDtoH(h_data,data,bytes());
   Vector mfem_vector(h_data,size);
@@ -65,7 +67,9 @@ RajaVector::operator Vector() {
 }
 
 RajaVector::operator Vector() const {
-  if (!rconfig::Get().Cuda()) return Vector(data,size);
+  if (!rconfig::Get().Cuda() && !rconfig::Get().Hip())
+    return Vector(data,size);
+
   double *h_data= (double*) ::malloc(bytes());
   rmemcpy::rDtoH(h_data,data,bytes());
   Vector mfem_vector(h_data,size);
@@ -77,11 +81,11 @@ RajaVector::operator Vector() const {
 void RajaVector::Print(std::ostream& out, int width) const {
   double *h_data = (double*) ::malloc(bytes());
   rmemcpy::rDtoH(h_data,data,bytes());
-  for (size_t i=0; i<size; i+=1) 
+  for (size_t i=0; i<size; i+=1)
     printf("\n\t[%ld] %.15e",i,h_data[i]);
   free(h_data);
 }
-  
+
 // ***************************************************************************
 RajaVector* RajaVector::GetRange(const size_t offset,
                                  const size_t entries) const {
@@ -102,8 +106,10 @@ RajaVector& RajaVector::operator=(const RajaVector& v) {
 // ***************************************************************************
 RajaVector& RajaVector::operator=(const Vector& v) {
   size=v.Size();
-  if (!rconfig::Get().Cuda()) SetSize(size,v.GetData());
-  else rHtoD(data,v.GetData(),bytes());
+  if (!rconfig::Get().Cuda() && !rconfig::Get().Hip())
+    SetSize(size,v.GetData());
+  else
+    rHtoD(data,v.GetData(),bytes());
   own = false;
   return *this;
 }
@@ -130,14 +136,16 @@ RajaVector& RajaVector::operator+=(const RajaVector& v) {
   vector_vec_add(size, data, v.data);
   return *this;
 }
-  
+
 // ***************************************************************************
 RajaVector& RajaVector::operator+=(const Vector& v) {
   double *d_v_data;
   assert(v.GetData());
-  if (!rconfig::Get().Cuda()) d_v_data=v.GetData();
-  else rmemcpy::rHtoD(d_v_data = alloc(size),v.GetData(),bytes());
-  vector_vec_add(size, data, d_v_data);  
+  if (!rconfig::Get().Cuda() && !rconfig::Get().Hip())
+    d_v_data=v.GetData();
+  else
+    rmemcpy::rHtoD(d_v_data = alloc(size),v.GetData(),bytes());
+  vector_vec_add(size, data, d_v_data);
   return *this;
 }
 
