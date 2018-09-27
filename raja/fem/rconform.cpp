@@ -11,7 +11,7 @@
 #include "../raja.hpp"
 
 namespace mfem {
-  
+
   // ***************************************************************************
   // * RajaConformingProlongationOperator
   // ***************************************************************************
@@ -26,14 +26,14 @@ namespace mfem {
     external_ldofs.Reserve(Height()-Width());
     for (int gr = 1; gr < group_ldof.Size(); gr++)
     {
-      if (!gc->GetGroupTopology().IAmMaster(gr)) 
+      if (!gc->GetGroupTopology().IAmMaster(gr))
       {
         ldofs.MakeRef(group_ldof.GetRow(gr), group_ldof.RowSize(gr));
         external_ldofs.Append(ldofs);
       }
     }
     external_ldofs.Sort();
-#ifdef __NVCC__
+#if defined(__NVCC__) || defined(__HIPCC__)
     const int HmW=Height()-Width();
     if (HmW>0)
       d_external_ldofs=external_ldofs;
@@ -51,7 +51,7 @@ namespace mfem {
       j = end+1;
     }
     //printf("\n[RajaConformingProlongationOperator] kMaxTh=%d",kMaxTh);fflush(stdout);
-    //gc->PrintInfo(); 
+    //gc->PrintInfo();
     //pfes.Dof_TrueDof_Matrix()->PrintCommPkg();
   }
 
@@ -68,11 +68,24 @@ namespace mfem {
   // ***************************************************************************
   void cuLastCheck(){
     cudaError_t cudaStatus = cudaGetLastError();
-    if (cudaStatus != cudaSuccess) 
+    if (cudaStatus != cudaSuccess)
       exit(fprintf(stderr, "\n\t\033[31;1m[cuLastCheck] failed: %s\033[m\n",
                    cudaGetErrorString(cudaStatus)));
   }
+#endif
+#ifdef __HIPCC__
+  // ***************************************************************************
+  // * HIP Error Status Check
+  // ***************************************************************************
+  void hipLastCheck(){
+    hipError_t hipStatus = hipGetLastError();
+    if (hipStatus != hipSuccess)
+      exit(fprintf(stderr, "\n\t\033[31;1m[hipLastCheck] failed: %s\033[m\n",
+                   hipGetErrorString(hipStatus)));
+  }
+#endif
 
+#if defined(__NVCC__) || defined(__HIPCC__)
   // ***************************************************************************
   // * k_Mult
   // ***************************************************************************
@@ -105,13 +118,13 @@ namespace mfem {
     push(Coral);
     const double *d_xdata = x.GetData();
     const int in_layout = 2; // 2 - input is ltdofs array
-    
+
     push(d_BcastBegin,Coral);
     gc->d_BcastBegin(const_cast<double*>(d_xdata), in_layout);
     pop();
-    
+
     push(d_Mult_Work,Coral);
-    double *d_ydata = y.GetData(); 
+    double *d_ydata = y.GetData();
 #ifdef __NVCC__
     int j = 0;
     const int m = external_ldofs.Size();
@@ -125,7 +138,7 @@ namespace mfem {
        }
        cudaDeviceSynchronize();
        pop();*/
-    
+
     if (m>0){
       const int maxXThDim = rconfig::Get().MaxXThreadsDim();
       if (m>maxXThDim){
@@ -148,8 +161,44 @@ namespace mfem {
     }
     rmemcpy::rDtoD(d_ydata+j,d_xdata+j-m,(Width()+m-j)*sizeof(double));
 #endif
+#ifdef __HIPCC__
+    int j = 0;
+    const int m = external_ldofs.Size();
+    /* // Test with async rDtoD
+       push(k_DtoDAsync,Coral);
+       for (int i = 0; i < m; i++){
+       const int end = external_ldofs[i];
+       //printf("\n[k_Mult] rDtoD async size %d",end-j);
+       rmemcpy::rDtoD(d_ydata+j,d_xdata+j-i,(end-j)*sizeof(double),true); // async
+       j = end+1;
+       }
+       cudaDeviceSynchronize();
+       pop();*/
+
+    if (m>0){
+      const int maxXThDim = rconfig::Get().MaxXThreadsDim();
+      if (m>maxXThDim){
+        const int kTpB=64;
+        //printf("\n[k_Mult] m=%d kMaxTh=%d",m,kMaxTh);
+        hipLaunchKernelGGL((k_Mult),(m+kTpB-1)/kTpB,kTpB, 0,0, d_ydata,d_xdata,d_external_ldofs,m);
+        hipLastCheck();
+      }else{
+        assert((m/maxXThDim)==0);
+        assert(kMaxTh<rconfig::Get().MaxXGridSize());
+        for(int of7=0;of7<m/maxXThDim;of7+=1){
+          const int base = of7*maxXThDim;
+          hipLaunchKernelGGL((k_Mult2), kMaxTh,maxXThDim, 0,0, d_ydata,d_xdata,d_external_ldofs,m,base);
+          hipLastCheck();
+        }
+        hipLaunchKernelGGL((k_Mult2),kMaxTh,m%maxXThDim,0,0,d_ydata,d_xdata,d_external_ldofs,m,0);
+        hipLastCheck();
+      }
+      j = external_ldofs[m-1]+1;
+    }
+    rmemcpy::rDtoD(d_ydata+j,d_xdata+j-m,(Width()+m-j)*sizeof(double));
+#endif
     pop();
-    
+
     push(d_BcastEnd,Coral);
     const int out_layout = 0; // 0 - output is ldofs array
     gc->d_BcastEnd(d_ydata, out_layout);
@@ -157,11 +206,11 @@ namespace mfem {
     pop();
   }
 
-  
+
   // ***************************************************************************
   // * k_Mult
   // ***************************************************************************
-#ifdef __NVCC__
+#if defined(__NVCC__) || defined(__HIPCC__)
   static __global__
   void k_MultTranspose(double *y,const double *x,const int *external_ldofs,const int m){
     const int i = blockDim.x * blockIdx.x + threadIdx.x;
@@ -171,7 +220,7 @@ namespace mfem {
     for(int k=0;k<(end-j);k+=1)
       y[j-i+k]=x[j+k];
   }
-  
+
   static __global__
   void k_MultTranspose2(double *y,const double *x,const int *external_ldofs,
                         const int m, const int base){
@@ -183,7 +232,7 @@ namespace mfem {
     y[j-i+k]=x[j+k];
   }
 #endif
-  
+
   // ***************************************************************************
   // * Device MultTranspose
   // ***************************************************************************
@@ -191,11 +240,11 @@ namespace mfem {
                                                            RajaVector &y) const{
     push(Coral);
     const double *d_xdata = x.GetData();
-    
+
     push(d_ReduceBegin,Coral);
     gc->d_ReduceBegin(d_xdata);
     pop();
-    
+
     push(d_MultTranspose_Work,Coral);
     double *d_ydata = y.GetData();
 #ifdef __NVCC__
@@ -208,7 +257,7 @@ namespace mfem {
       j = end+1;
     }
     pop();*/
-    if (m>0){      
+    if (m>0){
       const int maxXThDim = rconfig::Get().MaxXThreadsDim();
       if (m>maxXThDim){
         const int kTpB=64;
@@ -229,6 +278,37 @@ namespace mfem {
     }
     rmemcpy::rDtoD(d_ydata+j-m,d_xdata+j,(Height()-j)*sizeof(double));
 #endif
+#ifdef __HIPCC__
+    int j = 0;
+    const int m = external_ldofs.Size();
+    /*push(k_DtoDT,Coral);
+    for (int i = 0; i < m; i++)   {
+      const int end = external_ldofs[i];
+      rmemcpy::rDtoD(d_ydata+j-i,d_xdata+j,(end-j)*sizeof(double));
+      j = end+1;
+    }
+    pop();*/
+    if (m>0){
+      const int maxXThDim = rconfig::Get().MaxXThreadsDim();
+      if (m>maxXThDim){
+        const int kTpB=64;
+        hipLaunchKernelGGL((k_MultTranspose),(m+kTpB-1)/kTpB,kTpB,0,0,d_ydata,d_xdata,d_external_ldofs,m);
+        hipLastCheck();
+      }else{
+        const int TpB = rconfig::Get().MaxXThreadsDim();
+        assert(kMaxTh<rconfig::Get().MaxXGridSize());
+        for(int of7=0;of7<m/maxXThDim;of7+=1){
+        const int base = of7*maxXThDim;
+        hipLaunchKernelGGL((k_MultTranspose2),kMaxTh,maxXThDim,0,0,d_ydata,d_xdata,d_external_ldofs,m,base);
+        hipLastCheck();
+      }
+      hipLaunchKernelGGL((k_MultTranspose2),kMaxTh,m%maxXThDim,0,0,d_ydata,d_xdata,d_external_ldofs,m,0);
+      hipLastCheck();
+      }
+      j = external_ldofs[m-1]+1;
+    }
+    rmemcpy::rDtoD(d_ydata+j-m,d_xdata+j,(Height()-j)*sizeof(double));
+#endif
     pop();
     push(d_ReduceEnd,Coral);
     const int out_layout = 2; // 2 - output is an array on all ltdofs
@@ -244,7 +324,7 @@ namespace mfem {
                                                   Vector &y) const{
     push(Coral);
     const double *xdata = x.GetData();
-    double *ydata = y.GetData(); 
+    double *ydata = y.GetData();
     const int m = external_ldofs.Size();
     const int in_layout = 2; // 2 - input is ltdofs array
     push(BcastBegin,Moccasin);

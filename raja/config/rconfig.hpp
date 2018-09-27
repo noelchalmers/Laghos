@@ -22,6 +22,10 @@ namespace mfem {
   typedef int CUstream;
 #endif
 
+#ifndef __HIPCC__
+  typedef int hipStream_t;
+#endif
+
   // ***************************************************************************
   // * Configuration class for RAJA
   // ***************************************************************************
@@ -41,8 +45,14 @@ namespace mfem {
     CUcontext cuContext;
     CUstream *hStream;
 #endif
+#ifdef __HIPCC__
+    hipDevice_t hipDevice;
+    hipCtx_t hipContext;
+    hipStream_t *hStream;
+#endif
     // *************************************************************************
     bool cuda=false;
+    bool hip=false;
     bool dcg=false;
     bool uvm=false;
     bool share=false;
@@ -65,7 +75,7 @@ namespace mfem {
     }
     // *************************************************************************
     void Setup(const int,const int,
-               const bool cuda, const bool dcg,
+               const bool cuda, const bool hip, const bool dcg,
                const bool uvm, const bool aware,
                const bool share, const bool occa, const bool hcpo,
                const bool sync, const bool dot, const int rs_levels);
@@ -83,6 +93,7 @@ namespace mfem {
     // *************************************************************************
     inline bool Uvm() { return uvm; }
     inline bool Cuda() { return cuda; }
+    inline bool Hip() { return hip; }
     inline bool Dcg() { return dcg; }
     inline bool Share() { return share && !share_env; }
     inline bool ShareEnv() { return share_env; }
@@ -96,8 +107,11 @@ namespace mfem {
 #ifdef __NVCC__
     inline CUstream *Stream() { return hStream; }
 #endif
+#ifdef __HIPCC__
+    inline hipStream_t *Stream() { return hStream; }
+#endif
   };
-  
+
 } // namespace mfem
 
 #endif // LAGHOS_RAJA_CONFIG

@@ -31,11 +31,14 @@ namespace mfem {
     dbg(">\033[m");
     if (bytes==0) return dest;
     assert(src); assert(dest);
-    if (!rconfig::Get().Cuda()) return std::memcpy(dest,src,bytes);
+    if (!rconfig::Get().Cuda() && !rconfig::Get().Hip()) return std::memcpy(dest,src,bytes);
 #ifdef __NVCC__
     if (!rconfig::Get().Uvm())
       checkCudaErrors(cuMemcpyHtoD((CUdeviceptr)dest,src,bytes));
     else checkCudaErrors(cuMemcpy((CUdeviceptr)dest,(CUdeviceptr)src,bytes));
+#endif
+#ifdef __HIPCC__
+    checkHipErrors(hipMemcpyHtoD((hipDeviceptr_t)dest,const_cast<void*>(src),bytes));
 #endif
     return dest;
   }
@@ -45,21 +48,24 @@ namespace mfem {
     dbg("<\033[m");
     if (bytes==0) return dest;
     assert(src); assert(dest);
-    if (!rconfig::Get().Cuda()) return std::memcpy(dest,src,bytes);
+    if (!rconfig::Get().Cuda() && !rconfig::Get().Hip()) return std::memcpy(dest,src,bytes);
 #ifdef __NVCC__
     if (!rconfig::Get().Uvm())
       checkCudaErrors(cuMemcpyDtoH(dest,(CUdeviceptr)src,bytes));
     else checkCudaErrors(cuMemcpy((CUdeviceptr)dest,(CUdeviceptr)src,bytes));
 #endif
+#ifdef __HIPCC__
+    checkHipErrors(hipMemcpyDtoH(dest,(hipDeviceptr_t)src,bytes));
+#endif
     return dest;
   }
-  
+
   // ***************************************************************************
   void* rmemcpy::rDtoD(void *dest, const void *src, std::size_t bytes, const bool async){
     dbg("<\033[m");
     if (bytes==0) return dest;
     assert(src); assert(dest);
-    if (!rconfig::Get().Cuda()) return std::memcpy(dest,src,bytes);
+    if (!rconfig::Get().Cuda() && !rconfig::Get().Hip()) return std::memcpy(dest,src,bytes);
 #ifdef __NVCC__
     if (!rconfig::Get().Uvm()){
       if (!async)
@@ -69,6 +75,14 @@ namespace mfem {
         checkCudaErrors(cuMemcpyDtoDAsync((CUdeviceptr)dest,(CUdeviceptr)src,bytes,s));
       }
     } else checkCudaErrors(cuMemcpy((CUdeviceptr)dest,(CUdeviceptr)src,bytes));
+#endif
+#ifdef __HIPCC__
+    if (!async)
+      checkHipErrors(hipMemcpyDtoD((hipDeviceptr_t)dest,(hipDeviceptr_t)src,bytes));
+    else{
+      const hipStream_t s = *rconfig::Get().Stream();
+      checkHipErrors(hipMemcpyDtoDAsync((hipDeviceptr_t)dest,(hipDeviceptr_t)src,bytes,s));
+    }
 #endif
     return dest;
   }

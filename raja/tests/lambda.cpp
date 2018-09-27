@@ -19,7 +19,7 @@
 #include "../../laghos_solver.hpp"
 
 namespace mfem {
-  
+
 namespace hydrodynamics {
 
   // ***************************************************************************
@@ -56,7 +56,7 @@ namespace hydrodynamics {
     quad_data.dqMaps = RajaDofQuadMaps::Get(H1FESpace,integ_rule);
     quad_data.geom = RajaGeometry::Get(H1FESpace,integ_rule);
     RajaGridFunction d_rho(L2FESpace);
-    RajaVector rhoValues; 
+    RajaVector rhoValues;
     d_rho = 1.0;
     d_rho.ToQuad(integ_rule, rhoValues);
     if (dim==1) { assert(false); }
@@ -80,6 +80,9 @@ namespace hydrodynamics {
 #ifdef __NVCC__
     cudaDeviceSynchronize();
 #endif
+#ifdef __HIPCC__
+    hipDeviceSynchronize();
+#endif
     // *************************************************************************
     // Now let go the markers
     rconfig::Get().Nvvp(true);
@@ -96,13 +99,16 @@ namespace hydrodynamics {
 #ifdef __NVCC__
     cudaDeviceSynchronize();
 #endif
+#ifdef __HIPCC__
+    hipDeviceSynchronize();
+#endif
     gettimeofday(&et, NULL);
     const float Kalltime = (et.tv_sec-st.tv_sec)*1.0e6+(et.tv_usec - st.tv_usec);
     if (rconfig::Get().Root())
       printf("\033[32;1m[lambda] Elapsed time = %.1f us/step(%d)\33[m\n", Kalltime/nb_step,nb_step);
     return true;
   }
-  
+
 } //  namespace hydrodynamics
-  
+
 } // namespace mfem

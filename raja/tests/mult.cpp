@@ -74,47 +74,51 @@ namespace mfem {
   };
 
   // ***************************************************************************
-#ifdef __NVCC__
+#if defined(__NVCC__) || defined(__HIPCC__)
   __global__ void iniK(void){}
 #endif
+
 
   // ***************************************************************************
   bool multTest(ParMesh *pmesh, const int order, const int max_step){
     struct timeval st, et;
     const int nb_step = (max_step>0)?max_step:100;
     assert(order>=1);
-    
+
     const int dim = pmesh->Dimension();
     const H1_FECollection fec(order, dim);
     RajaFiniteElementSpace fes(pmesh, &fec, 1);
-    
+
     const int lsize = fes.GetVSize();
     const int ltsize = fes.GetTrueVSize();
     const HYPRE_Int gsize = fes.GlobalTrueVSize();
-    
+
     if (rconfig::Get().Root())
       mfem::out << "Number of global dofs: " << gsize << std::endl;
     if (rconfig::Get().Root())
       mfem::out << "Number of local dofs: " << lsize << std::endl;
-    
+
     const RajaOperator &prolong = *fes.GetProlongationOperator();
     const RajaOperator &testP  = prolong;
     const RajaOperator &trialP = prolong;
     const RajaIdOperator Id(lsize);
-    
+
     RajaPm1APOperator Pm1AP(testP,Id,trialP);
     RajaVector x(ltsize); x=1.0;
     RajaVector y(lsize);
-    
+
     MPI_Barrier(pmesh->GetComm());
 #ifdef __NVCC__
     cudaDeviceSynchronize();
+#endif
+#ifdef __HIPCC__
+    hipDeviceSynchronize();
 #endif
 
     // Do one RAP Mult/MultTranspose to set MPI's buffers
     Pm1AP.Mult(x,y);
     Pm1AP.MultTranspose(x,y);
-    
+
 #ifdef __NVCC__
     MPI_Barrier(pmesh->GetComm());
     cudaDeviceSynchronize();
@@ -122,17 +126,24 @@ namespace mfem {
     rconfig::Get().Nvvp(true);
     cuProfilerStart();
 #endif
-    
+#ifdef __HIPCC__
+    MPI_Barrier(pmesh->GetComm());
+    hipDeviceSynchronize();
+#endif
+
     // Launch first dummy kernel for profiling overhead to start
 #ifdef __NVCC__
     push(iniK,Green);
     iniK<<<128,1>>>();
     pop();
 #endif
-    
+
     MPI_Barrier(pmesh->GetComm());
 #ifdef __NVCC__
     cudaDeviceSynchronize();
+#endif
+#ifdef __HIPCC__
+    hipDeviceSynchronize();
 #endif
 
     gettimeofday(&st, NULL);
@@ -140,14 +151,17 @@ namespace mfem {
 #ifdef __NVCC__
       cudaDeviceSynchronize(); // used with nvvp
 #endif
+#ifdef __HIPCC__
+    hipDeviceSynchronize();
+#endif
       push(SkyBlue);
       Pm1AP.Mult(x, y);
       pop();
-      
+
       push(Wrk,LawnGreen);
       //usleep(1);
       pop();
-      
+
       push(SkyBlue);
       Pm1AP.MultTranspose(x, y);
       pop();
@@ -156,6 +170,9 @@ namespace mfem {
     // or play with the -sync flag to enforce it with the push/pop
 #ifdef __NVCC__
     cudaDeviceSynchronize();
+#endif
+#ifdef __HIPCC__
+    hipDeviceSynchronize();
 #endif
     gettimeofday(&et, NULL);
     const float alltime = ((et.tv_sec-st.tv_sec)*1.0e3+(et.tv_usec - st.tv_usec)/1.0e3);

@@ -96,6 +96,7 @@ int main(int argc, char *argv[])
    bool mult = false;
    bool lambda = false; // lambda test on one kernel only
    bool cuda = false;
+   bool hip = false;
    bool dcg = false;
    bool uvm = false;
    bool aware = false;
@@ -107,6 +108,9 @@ int main(int argc, char *argv[])
    // **************************************************************************
 #if defined(__NVCC__) and not defined(__RAJA__)
    cuda=true;
+#endif
+#if defined(__HIPCC__) and not defined(__RAJA__)
+   hip=true;
 #endif
 
    const char *basename = "results/Laghos";
@@ -158,6 +162,8 @@ int main(int argc, char *argv[])
    // RAJA Options *************************************************************
    args.AddOption(&cuda, "-cuda", "--cuda", "-no-cuda", "--no-cuda",
                   "Enable or disable CUDA kernels if you are using RAJA.");
+   args.AddOption(&hip, "-hip", "--hip", "-no-hip", "--no-hip",
+                  "Enable or disable HIP kernels if you are using RAJA.");
    // OCCA Options *************************************************************
    args.AddOption(&occa, "-occa", "--occa", "-not-occa", "--no-occa",
                   "Enable or disable OCCA behavior: geometry update and\n"
@@ -188,7 +194,7 @@ int main(int argc, char *argv[])
    // CUDA set device & options
    // **************************************************************************
    rconfig::Get().Setup(mpi.WorldRank(),mpi.WorldSize(),
-                        cuda,dcg,uvm,aware,share,occa,hcpo,sync,dot,rs_levels);
+                        cuda,hip,dcg,uvm,aware,share,occa,hcpo,sync,dot,rs_levels);
 
    // Read the serial mesh from the given mesh file on all processors.
    // Refine the mesh in serial to increase the resolution.
@@ -251,7 +257,7 @@ int main(int argc, char *argv[])
    int global_pmesh_NE;
    const int pmesh_NE=pmesh->GetNE();
    MPI_Allreduce(&pmesh_NE,&global_pmesh_NE,1,MPI_INT,MPI_MIN,pmesh->GetComm());
-   if (global_pmesh_NE==0) { return printf("[Laghos] ERROR: pmesh->GetNE()==0!"); }
+   if (global_pmesh_NE==0) { printf("[Laghos] ERROR: pmesh->GetNE()==0!"); return -1;}
    else { printf("\033[32m[laghos] pmesh->GetNE()=%d\033[m\n",global_pmesh_NE); }
    assert(pmesh->GetNE()>0);
 #endif

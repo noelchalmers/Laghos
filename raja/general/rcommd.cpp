@@ -21,14 +21,14 @@ namespace mfem {
     d_group_ltdof(group_ltdof),
     d_group_buf(NULL) {comm_lock=0;}
 
-  
+
   // ***************************************************************************
   // * ~RajaCommD
   // ***************************************************************************
   RajaCommD::~RajaCommD(){ }
 
 
-#ifdef __NVCC__
+#if defined(__NVCC__) || defined(__HIPCC__)
   // ***************************************************************************
   // * kCopyFromTable
   // ***************************************************************************
@@ -38,7 +38,7 @@ namespace mfem {
     const int idx = dofs[j];
     buf[j]=data[idx];
   }
-  
+
   // ***************************************************************************
   // ***************************************************************************
   template <class T> static
@@ -48,11 +48,15 @@ namespace mfem {
     push(PapayaWhip);
     const int ndofs = d_dofs.RowSize(group);
     const int *dofs = d_dofs.GetRow(group);
+#ifdef __NVCC__
     k_CopyGroupToBuffer<<<ndofs,1>>>(d_buf,d_ldata,dofs);
+#else
+    hipLaunchKernelGGL((k_CopyGroupToBuffer),ndofs,1,0,0,d_buf,d_ldata,dofs);
+#endif
     pop();
     return d_buf + ndofs;
   }
-  
+
   // ***************************************************************************
   // * d_CopyGroupToBuffer
   // ***************************************************************************
@@ -66,7 +70,7 @@ namespace mfem {
     assert(false);
     return 0;
   }
-  
+
   // ***************************************************************************
   // * k_CopyGroupFromBuffer
   // ***************************************************************************
@@ -76,7 +80,7 @@ namespace mfem {
     const int idx = dofs[j];
     data[idx]=buf[j];
   }
-  
+
   // ***************************************************************************
   // * d_CopyGroupFromBuffer
   // ***************************************************************************
@@ -87,11 +91,15 @@ namespace mfem {
     assert(layout==0);
     const int ndofs = d_group_ldof.RowSize(group);
     const int *dofs = d_group_ldof.GetRow(group);
+#ifdef __NVCC__
     k_CopyGroupFromBuffer<<<ndofs,1>>>(d_buf,d_ldata,dofs);
+#else
+    hipLaunchKernelGGL((k_CopyGroupFromBuffer),ndofs,1,0,0,d_buf,d_ldata,dofs);
+#endif
     pop();
     return d_buf + ndofs;
   }
-  
+
   // ***************************************************************************
   // * kAtomicAdd
   // ***************************************************************************
@@ -123,7 +131,12 @@ namespace mfem {
     assert(opd.nb == 1);
     // this is the operation to perform: opd.ldata[opd.ldofs[i]] += opd.buf[i];
     // mfem/general/communication.cpp, line 1008
+#ifdef __NVCC__
     kAtomicAdd<<<opd.nldofs,1>>>(opd.ldata,opd.ldofs,opd.buf);
+#else
+    hipLaunchKernelGGL((kAtomicAdd),opd.nldofs,1,0,0,opd.ldata,opd.ldofs,opd.buf);
+#endif
+
     dbg("\t\t\033[33m[d_ReduceGroupFromBuffer] done");
     pop();
     return d_buf + opd.nldofs;
@@ -137,7 +150,7 @@ namespace mfem {
   void RajaCommD::d_BcastBegin(T *d_ldata, int layout) {
     MFEM_VERIFY(comm_lock == 0, "object is already in use");
     if (group_buf_size == 0) { return; }
-    
+
     push(Moccasin);
     assert(layout==2);
     const int rnk = rconfig::Get().Rank();
@@ -174,11 +187,15 @@ namespace mfem {
           rmemcpy::rDtoH(buf_start,d_buf_start,(buf-buf_start)*sizeof(T));
           pop();
         }
-        
+
         // make sure the device has finished
         if (rconfig::Get().Aware()){
           push(sync,Lime);
+#ifdef __NVCC__
           cudaStreamSynchronize(0);//*rconfig::Get().Stream());
+#else
+          hipStreamSynchronize(0);//*rconfig::Get().Stream());
+#endif
           pop();
         }
 
@@ -258,7 +275,7 @@ namespace mfem {
     assert(comm_lock == 1);
     // copy the received data from the buffer to d_ldata, as it arrives
     int idx;
-    push(MPI_Waitany,Orange);   
+    push(MPI_Waitany,Orange);
     while (MPI_Waitany(num_requests, requests, &idx, MPI_STATUS_IGNORE),
            idx != MPI_UNDEFINED)
     {
@@ -332,7 +349,11 @@ namespace mfem {
         // make sure the device has finished
         if (rconfig::Get().Aware()){
           push(sync,Lime);
+#ifdef __NVCC__
           cudaStreamSynchronize(0);//*rconfig::Get().Stream());
+#else
+          hipStreamSynchronize(0);//*rconfig::Get().Stream());
+#endif
           pop();
         }
         push(MPI_Isend,Orange);
@@ -352,7 +373,7 @@ namespace mfem {
                     43822,
                     gtopo.GetComm(),
                     &requests[request_counter]);
-        pop();        
+        pop();
         request_marker[request_counter] = -1; // mark as send request
         request_counter++;
       }
@@ -412,7 +433,7 @@ namespace mfem {
     dbg("\033[33;1m[%d-d_ReduceEnd]",rnk);
     // The above also handles the case (group_buf_size == 0).
     assert(comm_lock == 2);
-    
+
     push(MPI_Waitall,Orange);
     MPI_Waitall(num_requests, requests, MPI_STATUSES_IGNORE);
     pop();

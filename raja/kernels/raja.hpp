@@ -38,6 +38,13 @@
 #include <helper_functions.h>
 #endif // __NVCC__
 
+// __HIPCC__ ********************************************************************
+#ifdef __HIPCC__
+#include <hip/hip_runtime.h>
+#include "../helper_hip.h"
+#define hipCheck checkHipErrors
+#endif
+
 // *****************************************************************************
 #ifdef __RAJA__
 #include <cuda.h>

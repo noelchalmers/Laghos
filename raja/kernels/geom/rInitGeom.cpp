@@ -91,7 +91,7 @@ void rIniGeom1D(
   {
     double s_nodes[NUM_DOFS];
     for (int q = 0; q < NUM_QUAD; ++q) {
-      for (int d = q; d < NUM_DOFS; d += NUM_QUAD) { 
+      for (int d = q; d < NUM_DOFS; d += NUM_QUAD) {
         s_nodes[d] = nodes[ijkN(0,d,e,NUM_QUAD)];
       }
     }
@@ -100,7 +100,7 @@ void rIniGeom1D(
       for (int d = 0; d < NUM_DOFS; ++d) {
         const double wx = dofToQuadD[ijN(q,d,NUM_DOFS)];
         J11 += wx * s_nodes[d];
-      } 
+      }
       J[ijN(q,e,NUM_QUAD)] = J11;
       invJ[ijN(q, e,NUM_QUAD)] = 1.0 / J11;
       detJ[ijN(q, e,NUM_QUAD)] = J11;
@@ -148,8 +148,8 @@ void rIniGeom2D(
         const double wx = dofToQuadD[ijkNM(0,q,d,2,NUM_QUAD)];
         const double wy = dofToQuadD[ijkNM(1,q,d,2,NUM_QUAD)];
         const double x = s_nodes[ijN(0,d,2)];
-        const double y = s_nodes[ijN(1,d,2)]; 
-        J11 += (wx * x); J12 += (wx * y); 
+        const double y = s_nodes[ijN(1,d,2)];
+        J11 += (wx * x); J12 += (wx * y);
         J21 += (wy * x); J22 += (wy * y);
       }
       const double r_detJ = (J11 * J22)-(J12 * J21);
@@ -279,8 +279,10 @@ void rIniGeom(const int DIM,
   const unsigned int id = (DIM<<4)|(dofs1D-2);
   assert(LOG2(DIM)<=4);
   assert(LOG2(dofs1D-2)<=4);
-  if (quad1D!=2*(dofs1D-1))
-    return exit(printf("\033[31;1m[rIniGeom] order ERROR: -ok=p -ot=p-1, p in [1,16] (%d,%d)\033[m\n",quad1D,dofs1D));
+  if (quad1D!=2*(dofs1D-1)) {
+    printf("\033[31;1m[rIniGeom] order ERROR: -ok=p -ot=p-1, p in [1,16] (%d,%d)\033[m\n",quad1D,dofs1D);
+    return exit(-1);
+  }
   assert(quad1D==2*(dofs1D-1));
   static std::unordered_map<unsigned int, fIniGeom> call = {
     // 2D

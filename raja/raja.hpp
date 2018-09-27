@@ -29,6 +29,13 @@
 #define cuCheck checkCudaErrors
 #endif
 
+// __HIPCC__ ********************************************************************
+#ifdef __HIPCC__
+#include <hip/hip_runtime.h>
+#include "helper_hip.h"
+#define hipCheck checkHipErrors
+#endif
+
 // MFEM/fem  *******************************************************************
 #include "fem/gridfunc.hpp"
 #include "general/communication.hpp"

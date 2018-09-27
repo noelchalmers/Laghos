@@ -265,7 +265,6 @@ void LagrangianHydroOperator::Mult(const RajaVector &S, RajaVector &dS_dt) const
       H1compFESpace.GetProlongationOperator()->Mult(X, dv_c);
    }
 
-
    // Solve for energy, assemble the energy source if such exists.
    LinearForm *e_source = NULL;
    if (source_type == 1) // 2D Taylor-Green.

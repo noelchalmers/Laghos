@@ -19,13 +19,14 @@
 #########
 CUB_DIR  ?= ./cub
 CUDA_DIR ?= /usr/local/cuda
-MFEM_DIR ?= $(HOME)/home/mfem/master
-RAJA_DIR ?= $(HOME)/usr/local/raja/last
-MPI_HOME ?= $(HOME)/usr/local/openmpi/3.0.0
+ROCM_DIR ?= /opt/rocm/
+MFEM_DIR ?= $(HOME)/laghos/laghos/mfem/
+RAJA_DIR ?= $(HOME)/laghos/laghos/RAJA/
+MPI_HOME ?= /usr/lib/openmpi/
 
 NV_ARCH ?= -arch=sm_60 #-gencode arch=compute_52,code=sm_52 -gencode arch=compute_60,code=sm_60
 CXXEXTRA = -std=c++11 -m64 #-DNDEBUG=1 #-D__NVVP__ #-D__NVVP__ # -DLAGHOS_DEBUG -D__NVVP__
-
+MPILDFLAGS=$(shell $(MFEM_CXX) --showme:link)
 
 ###################
 # LAGHOS_HELP_MSG #
@@ -133,7 +134,7 @@ ifneq (,$(rj))
 	CXX = nvcc
 	CXXFLAGS += -D__RAJA__ -DUSE_CUDA
 	CXXFLAGS += -D__LAMBDA__ --expt-extended-lambda
-	CXXFLAGS += --restrict -Xcompiler -fopenmp 
+	CXXFLAGS += --restrict -Xcompiler -fopenmp
 	CXXFLAGS += -x=cu $(NV_ARCH)
 endif
 
@@ -141,15 +142,28 @@ endif
 # CUDA compiler: make nv=1 #
 ############################
 ifneq (,$(nv))
-	CXX = nvcc
+	CXX = $(CUDA_DIR)/bin/nvcc
 	CUFLAGS = -std=c++11 -m64 --restrict $(NV_ARCH) #-rdc=true
 #	CXXFLAGS += -Xptxas=-v # -maxrregcount=32
 	CXXFLAGS += --restrict $(NV_ARCH) -x=cu
 #	CXXFLAGS += -lineinfo
 #	CXXFLAGS += -default-stream per-thread
-ifneq (,$(l))	
+ifneq (,$(l))
 	CXXFLAGS += --expt-extended-lambda
 endif
+endif
+
+############################
+# HIP compiler: make hp=1 #
+############################
+ifneq (,$(hp))
+	CXX = $(ROCM_DIR)/bin/hipcc
+	HIPFLAGS = -O3 #-rdc=true
+#	CXXFLAGS += -Xptxas=-v # -maxrregcount=32
+	CXXFLAGS += -O3 -g
+	CXXFLAGS += $(shell $(ROCM_DIR)/bin/hipconfig --cpp_config)
+#	CXXFLAGS += -lineinfo
+#	CXXFLAGS += -default-stream per-thread
 endif
 
 ############################
@@ -170,12 +184,15 @@ endif
 # CPU,LAMBDA: make v=1 l=1
 # CPU,LAMBDA,TEMPLATE: make v=1 l=1 t=1
 #
-# GPU,LAMBDA,TEMPLATES: make v=1 nv=1 l=1 t=1
-# GPU,CUDA Kernel, TEMPLATES: make v=1 nv=1 t=1
+# CUDA GPU,LAMBDA,TEMPLATES: make v=1 nv=1 l=1 t=1
+# CUDA GPU,CUDA Kernel, TEMPLATES: make v=1 nv=1 t=1
+#
+# HIP GPU,LAMBDA,TEMPLATES: make v=1 hp=1 l=1 t=1
+# HIP GPU,CUDA Kernel, TEMPLATES: make v=1 hp=1 t=1
 #
 # RAJA: make v=1 rj=1 t=1
 ##################################################
-.PHONY: cpuL cpuLT rj raja cpuRJ cuda nvl gpuLT nvk gpuKT
+.PHONY: cpuL cpuLT rj raja cpuRJ cuda hip nvl gpuLT nvk gpuKT
 cpuL:;$(MAKE) l=1 all
 cpuLT:;$(MAKE) l=1 t=1 all
 
@@ -189,6 +206,11 @@ rj raja cpuRJ:;$(MAKE) rj=1 t=1 all
 ################
 nv nvl cuda gpuLT:;$(MAKE) nv=1 l=1 t=1 all
 nvk gpuKT:;$(MAKE) nv=1 t=1 all
+
+################
+# hip targets #
+################
+hip:;$(MAKE) hp=1 l=1 t=1 all
 
 ####################
 # make all targets #
@@ -214,7 +236,7 @@ gosv:;@valgrind --track-origins=yes --log-file=laghos.vlgrnd ./laghos -cfl 0.1 $
 #######################
 # TPL INCLUDES & LIBS #
 #######################
-MPI_INC = -I$(MPI_HOME)/include 
+MPI_INC = -I$(MPI_HOME)/include
 
 ############
 # CUDA ENV #
@@ -222,6 +244,12 @@ MPI_INC = -I$(MPI_HOME)/include
 CUDA_INC = -I$(CUDA_DIR)/samples/common/inc
 CUDA_LIBS = -Wl,-rpath -Wl,$(CUDA_DIR)/lib64 -L$(CUDA_DIR)/lib64 \
 				-lcuda -lcudart -lcudadevrt -lnvToolsExt
+
+############
+# HIP ENV #
+############
+HIP_INC = -I$(ROCM_DIR)/hip/include
+HIP_LIBS = $(shell $(ROCM_DIR)/bin/hipconfig --cpp_config) -L/opt/rocm/hip/lib/ -lhip_hcc
 
 ############
 # RAJA ENV #
@@ -239,8 +267,8 @@ CUB_INC = -I$(CUB_DIR)
 ################
 # LAGHOS FLAGS #
 ################
-LAGHOS_FLAGS = $(CPPFLAGS) $(CXXFLAGS) $(MFEM_INCFLAGS) $(CUB_INC) $(RAJA_INC) $(CUDA_INC) $(MPI_INC) $(DBG_INC)
-LAGHOS_LIBS = $(ASAN_LIB) $(MFEM_LIBS) -fopenmp $(RAJA_LIBS) $(CUDA_LIBS) -ldl $(DBG_LIB) $(BKT_LIB)
+LAGHOS_FLAGS = $(CPPFLAGS) $(CXXFLAGS) $(MFEM_INCFLAGS) $(CUB_INC) $(RAJA_INC) $(CUDA_INC) $(MPI_INC) $(DBG_INC) $(HIP_INC)
+LAGHOS_LIBS = $(ASAN_LIB) $(MFEM_LIBS) -fopenmp $(RAJA_LIBS) $(CUDA_LIBS) -ldl $(DBG_LIB) $(BKT_LIB) $(HIP_LIBS)
 ifeq ($(LAGHOS_DEBUG),YES)
    LAGHOS_FLAGS += -DLAGHOS_DEBUG
 endif
@@ -250,8 +278,13 @@ endif
 #########################
 LIBS = $(strip $(LAGHOS_LIBS) $(LDFLAGS))
 CCC  = $(strip $(CXX) $(LAGHOS_FLAGS))
-CCU  = $(strip $(CXX) $(CUFLAGS) $(MFEM_INCFLAGS) $(CUDA_INC) $(MPI_INC))
 Ccc  = $(strip $(CC) $(CFLAGS) $(GL_OPTS))
+
+ifeq (,$(hp))
+CCU  = $(strip $(CXX) $(CUFLAGS) $(MFEM_INCFLAGS) $(CUDA_INC) $(MPI_INC))
+else
+CCU  = $(strip $(CXX) $(HIPFLAGS) $(MFEM_INCFLAGS) $(MPI_INC))
+endif
 
 ################
 # SOURCE FILES #
@@ -331,9 +364,9 @@ $(raja)/%.o: $(raja)/%.cpp $(raja)/%.hpp $(raja)/raja.hpp $(raja)/rmanaged.hpp
 $(kernels)/%.o: $(kernels)/%.cpp $(kernels)/kernels.hpp $(kernels)/defines.hpp
 	$(call quiet,CCC) -c -o $@ $(abspath $<)
 
-####################
-# CUDA compilation #
-####################
+########################
+# CUDA/HIP compilation #
+########################
 $(raja)/%.o: $(raja)/%.cu
 	$(call quiet,CCU) -c -o $@ $(abspath $<)
 $(raja)/%.lo: $(raja)/%.o
@@ -347,12 +380,12 @@ $(kernels)/%.lo: $(kernels)/%.o
 ################
 # all & LAGHOS #
 ################
-all: 
+all:
 	@$(MAKE) -j $(CPU) laghos
 
 laghos: override MFEM_DIR = $(MFEM_DIR1)
 laghos:	$(OBJECT_FILES) $(CONFIG_MK) $(MFEM_LIB_FILE)
-	$(MFEM_CXX) -o laghos $(OBJECT_FILES) $(LIBS)
+	$(CXX) -o laghos $(OBJECT_FILES) $(LIBS) $(MPILDFLAGS)
 
 $(OBJECT_FILES): override MFEM_DIR = $(MFEM_DIR2)
 $(OBJECT_FILES): $(HEADER_FILES) $(CONFIG_MK)
@@ -376,7 +409,7 @@ clean cln: clean-build clean-exec
 clean-build:
 	rm -rf laghos laghos-nvcc laghos-mpicxx *.o *~ *.dSYM \
 	raja/*/*.o raja/*/*.lo \
-	raja/kernels/*.o raja/kernels/*/*.o raja/kernels/*/*.lo 
+	raja/kernels/*.o raja/kernels/*/*.o raja/kernels/*/*.lo
 clean-exec:
 	rm -rf ./results
 

@@ -19,7 +19,7 @@
 
 namespace mfem {
 
-  
+
   // ***************************************************************************
   bool isNvidiaCudaMpsDaemonRunning(void){
     const char *command="pidof -s nvidia-cuda-mps-control>/dev/null";
@@ -35,6 +35,19 @@ namespace mfem {
     int major, minor;
     cuDeviceGetName(name, 128, cuDevice);
     cuDeviceComputeCapability(&major, &minor, device);
+    printf("\033[32m[laghos] Rank_%d => Device_%d (%s:sm_%d.%d)\033[m\n",
+           mpi_rank, device, name, major, minor);
+  }
+#endif
+#ifdef __HIPCC__
+  // ***************************************************************************
+  void computeCapabilityOfTheDevice(const int mpi_rank,
+                                    const hipDevice_t hipDevice,
+                                    const int device){
+    char name[128];
+    int major, minor;
+    hipDeviceGetName(name, 128, hipDevice);
+    hipDeviceComputeCapability(&major, &minor, device);
     printf("\033[32m[laghos] Rank_%d => Device_%d (%s:sm_%d.%d)\033[m\n",
            mpi_rank, device, name, major, minor);
   }
@@ -74,6 +87,30 @@ namespace mfem {
     printf("Kernel execution timeout:      %s\n",  (devProp.kernelExecTimeoutEnabled ? "Yes" : "No"));
   }
 #endif
+#ifdef __HIPCC__
+  __attribute__((unused))
+  static void printDevProp(hipDeviceProp_t devProp){
+    printf("Major revision number:         %d\n",  devProp.major);
+    printf("Minor revision number:         %d\n",  devProp.minor);
+    printf("Name:                          %s\n",  devProp.name);
+    printf("Total global memory:           %zu\n",  devProp.totalGlobalMem);
+    printf("Total shared memory per block: %zu\n",  devProp.sharedMemPerBlock);
+    printf("Total registers per block:     %d\n",  devProp.regsPerBlock);
+    printf("Warp size:                     %d\n",  devProp.warpSize);
+    // printf("Maximum memory pitch:          %u\n",  devProp.memPitch);
+    printf("Maximum threads per block:     %d\n",  devProp.maxThreadsPerBlock);
+    for (int i = 0; i < 3; ++i)
+      printf("Maximum dimension %d of block:  %d\n", i, devProp.maxThreadsDim[i]);
+    for (int i = 0; i < 3; ++i)
+      printf("Maximum dimension %d of grid:   %d\n", i, devProp.maxGridSize[i]);
+    printf("Clock rate:                    %d\n",  devProp.clockRate);
+    printf("Total constant memory:         %zu\n",  devProp.totalConstMem);
+    // printf("Texture alignment:             %u\n",  devProp.textureAlignment);
+    // printf("Concurrent copy and execution: %s\n",  (devProp.deviceOverlap ? "Yes" : "No"));
+    printf("Number of multiprocessors:     %d\n",  devProp.multiProcessorCount);
+    // printf("Kernel execution timeout:      %s\n",  (devProp.kernelExecTimeoutEnabled ? "Yes" : "No"));
+  }
+#endif
 
   // ***************************************************************************
   // *   Setup
@@ -81,6 +118,7 @@ namespace mfem {
   void rconfig::Setup(const int _mpi_rank,
                       const int _mpi_size,
                       const bool _cuda,
+                      const bool _hip,
                       const bool _dcg,
                       const bool _uvm,
                       const bool _aware,
@@ -97,7 +135,7 @@ namespace mfem {
     const bool tux = isTux();
     if (tux && Root())
       printf("\033[32m[laghos] \033[1mTux\033[m\n");
-    
+
     // On Tux machines, use the MPIX_Query_cuda_support
     // Otherwise, assume there is a support
     //aware = tux?(MPIX_Query_cuda_support()==1)?true:false:true;
@@ -108,13 +146,17 @@ namespace mfem {
       printf("\033[32m[laghos] \033[32;1mMPS daemon\033[m\033[m\n");
     if (tux && !Mps() && Root())
       printf("\033[32m[laghos] \033[31;1mNo MPS daemon\033[m\n");
-    
+
 #ifdef __NVCC__
     // Get the number of devices with compute capability greater or equal to 2.0
     // Can be changed wuth CUDA_VISIBLE_DEVICES
     cuCheck(cudaGetDeviceCount(&gpu_count));
 #endif
+#ifdef __HIPCC__
+    hipCheck(hipGetDeviceCount(&gpu_count));
+#endif
     cuda=_cuda;
+    hip=_hip;
     dcg=_dcg; // CG on device
     uvm=_uvm;
     aware=_aware;
@@ -125,7 +167,7 @@ namespace mfem {
     sync=_sync;
 
 #if defined(__NVCC__)
-    
+
     // __NVVP__ warning output
 #if defined(__NVVP__)
     if (Root())
@@ -137,30 +179,30 @@ namespace mfem {
     if (Root())
       printf("\033[32m[laghos] \033[31;1mLAGHOS_DEBUG\033[m\n");
 #endif
-    
+
     // Check for Enforced Kernel Synchronization
     if (Sync() && Root())
       printf("\033[32m[laghos] \033[31;1mEnforced Kernel Synchronization!\033[m\n");
-    
+
     // Check if MPI is CUDA aware
     if (Root())
       printf("\033[32m[laghos] MPI %s CUDA aware\033[m\n",
              aware?"\033[1mIS":"is \033[31;1mNOT\033[32m");
-            
+
     if (Root())
-      printf("\033[32m[laghos] CUDA device count: %i\033[m\n", gpu_count);   
-   
+      printf("\033[32m[laghos] CUDA device count: %i\033[m\n", gpu_count);
+
     // Initializes the driver API
     // Must be called before any other function from the driver API
-    // Currently, the Flags parameter must be 0. 
+    // Currently, the Flags parameter must be 0.
     const unsigned int Flags = 0; // parameter must be 0
     cuInit(Flags);
-    
+
     // Returns properties for the selected device
     const int device = Mps()?0:(mpi_rank%gpu_count);
     // Check if we have enough devices for all ranks
     assert(device<gpu_count);
-    
+
     // Get a handle to our compute device
     cuDeviceGet(&cuDevice,device);
     computeCapabilityOfTheDevice(mpi_rank,cuDevice,device);
@@ -169,7 +211,7 @@ namespace mfem {
     struct cudaDeviceProp properties;
     cudaGetDeviceProperties(&properties, device);
 #if defined(LAGHOS_DEBUG)
-    if (Root()) 
+    if (Root())
       printDevProp(properties);
 #endif // LAGHOS_DEBUG
     maxXGridSize=properties.maxGridSize[0];
@@ -182,6 +224,60 @@ namespace mfem {
     hStream=new CUstream;
     cuStreamCreate(hStream, CU_STREAM_DEFAULT);
 #endif // __NVCC__
+
+#if defined(__HIPCC__)
+
+    // LAGHOS_DEBUG warning output
+#if defined(LAGHOS_DEBUG)
+    if (Root())
+      printf("\033[32m[laghos] \033[31;1mLAGHOS_DEBUG\033[m\n");
+#endif
+
+    // Check for Enforced Kernel Synchronization
+    if (Sync() && Root())
+      printf("\033[32m[laghos] \033[31;1mEnforced Kernel Synchronization!\033[m\n");
+
+    // Check if MPI is CUDA aware
+    if (Root())
+      printf("\033[32m[laghos] MPI %s HIP aware\033[m\n",
+             aware?"\033[1mIS":"is \033[31;1mNOT\033[32m");
+
+    if (Root())
+      printf("\033[32m[laghos] HIP device count: %i\033[m\n", gpu_count);
+
+    // Initializes the driver API
+    // Must be called before any other function from the driver API
+    // Currently, the Flags parameter must be 0.
+    const unsigned int Flags = 0; // parameter must be 0
+    hipInit(Flags);
+
+    // Returns properties for the selected device
+    const int device = Mps()?0:(mpi_rank%gpu_count);
+    // Check if we have enough devices for all ranks
+    assert(device<gpu_count);
+
+    // Get a handle to our compute device
+    hipDeviceGet(&hipDevice,device);
+    computeCapabilityOfTheDevice(mpi_rank,hipDevice,device);
+
+    // Get the properties of the device
+    struct hipDeviceProp_t properties;
+    hipGetDeviceProperties(&properties, device);
+#if defined(LAGHOS_DEBUG)
+    if (Root())
+      printDevProp(properties);
+#endif // LAGHOS_DEBUG
+    maxXGridSize=properties.maxGridSize[0];
+    maxXThreadsDim=properties.maxThreadsDim[0];
+    //printf("\033[32m[laghos] maxXGridSize: %d\033[m\n", maxXGridSize);
+    //printf("\033[32m[laghos] maxXThreadsDim: %d\033[m\n", maxXThreadsDim);
+
+    // Create our context
+    // hipCtxCreate(&hipContext, 0, hipDevice);
+    hStream = new hipStream_t;
+    hipStreamCreate(hStream);
+#endif // __HIPCC__
+
     if (_dot){
       dotTest(rs_levels);
       MPI_Finalize();
@@ -207,5 +303,5 @@ namespace mfem {
     if (Occa()) return true;
     return (Cuda())?hcpo:true;
   }
-  
+
 } // namespace mfem

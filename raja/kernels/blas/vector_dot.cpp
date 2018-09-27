@@ -42,6 +42,143 @@ static double cub_vector_dot(const int N,
 }
 #endif // __NVCC__
 
+#ifdef __HIPCC__
+
+extern "C" __global__ void vector_dot0(const int N,
+                                   const int Nblocks,
+                                   const double* __restrict vec1,
+                                   const double* __restrict vec2,
+                                   double *storage){
+
+  __shared__ volatile double s_dot[CUDA_BLOCK_SIZE];
+
+  int t = threadIdx.x;
+  int b = blockIdx.x;
+  int id = CUDA_BLOCK_SIZE * b + t;
+  s_dot[t] = 0.0;
+  while (id<N) {
+    s_dot[t] += vec1[id]*vec2[id];
+    id += CUDA_BLOCK_SIZE*Nblocks;
+  }
+
+  __syncthreads();
+
+#if CUDA_BLOCK_SIZE>512
+  if(t<512) s_dot[t] += s_dot[t+512];
+  __syncthreads();
+#endif
+
+#if CUDA_BLOCK_SIZE>256
+  if(t<256) s_dot[t] += s_dot[t+256];
+  __syncthreads();
+#endif
+
+  if(t<128) s_dot[t] += s_dot[t+128];
+  __syncthreads();
+
+  if(t< 64) s_dot[t] += s_dot[t+64];
+  __syncthreads();
+
+  if(t< 32) s_dot[t] += s_dot[t+32];
+  //    __syncthreads();
+
+  if(t< 16) s_dot[t] += s_dot[t+16];
+  //    __syncthreads();
+
+  if(t<  8) s_dot[t] += s_dot[t+8];
+  //    __syncthreads();
+
+  if(t<  4) s_dot[t] += s_dot[t+4];
+  //    __syncthreads();
+
+  if(t<  2) s_dot[t] += s_dot[t+2];
+  //    __syncthreads();
+
+  if(t<  1) storage[b] = s_dot[1] + s_dot[0];
+}
+
+
+extern "C" __global__ void vector_dot1(const int N,
+                                   const int Nblocks,
+                                   const double* __restrict storage,
+                                   double *sum){
+
+  __shared__ volatile double s_dot[CUDA_BLOCK_SIZE];
+
+  int t = threadIdx.x;
+  int b = blockIdx.x;
+  int id = CUDA_BLOCK_SIZE * b + t;
+  s_dot[t] = 0.0;
+  while (id<N) {
+    s_dot[t] += storage[id];
+    id += CUDA_BLOCK_SIZE*Nblocks;
+  }
+
+  __syncthreads();
+
+#if CUDA_BLOCK_SIZE>512
+  if(t<512) s_dot[t] += s_dot[t+512];
+  __syncthreads();
+#endif
+
+#if CUDA_BLOCK_SIZE>256
+  if(t<256) s_dot[t] += s_dot[t+256];
+  __syncthreads();
+#endif
+
+  if(t<128) s_dot[t] += s_dot[t+128];
+  __syncthreads();
+
+  if(t< 64) s_dot[t] += s_dot[t+64];
+  __syncthreads();
+
+  if(t< 32) s_dot[t] += s_dot[t+32];
+  //    __syncthreads();
+
+  if(t< 16) s_dot[t] += s_dot[t+16];
+  //    __syncthreads();
+
+  if(t<  8) s_dot[t] += s_dot[t+8];
+  //    __syncthreads();
+
+  if(t<  4) s_dot[t] += s_dot[t+4];
+  //    __syncthreads();
+
+  if(t<  2) s_dot[t] += s_dot[t+2];
+  //    __syncthreads();
+
+  if(t<  1) sum[b] = s_dot[1] + s_dot[0];
+}
+
+static double hip_vector_dot(const int N,
+                             const double* __restrict vec1,
+                             const double* __restrict vec2) {
+  static double *h_min = NULL;
+  if (!h_min) h_min = (double*)mfem::rmalloc<double>::operator new(1,true);
+  static double *d_min = NULL;
+  if (!d_min) d_min=(double*)mfem::rmalloc<double>::operator new(1);
+  static void *d_storage = NULL;
+  static size_t storage_bytes = 0;
+
+  int NmaxBlocks = 128;
+  int Nthreads = CUDA_BLOCK_SIZE;
+
+  if (!d_storage){
+    storage_bytes = NmaxBlocks*sizeof(double);
+    d_storage = mfem::rmalloc<char>::operator new(storage_bytes);
+  }
+
+  int Nblocks = (N+Nthreads-1)/Nthreads;
+  Nblocks = (Nblocks > NmaxBlocks) ? NmaxBlocks : Nblocks;
+
+  //two phase reduction
+  hipLaunchKernelGGL((vector_dot0),dim3(Nblocks),dim3(Nthreads),0,0,N,Nblocks,vec1,vec2,d_storage);
+  hipLaunchKernelGGL((vector_dot1),dim3(1),      dim3(Nthreads),0,0,Nblocks,1,d_storage,d_min);
+  mfem::rmemcpy::rDtoH(h_min,d_min,sizeof(double));
+  return *h_min;
+}
+#endif //__HIPCC__
+
 // *****************************************************************************
 double vector_dot(const int N,
                   const double* __restrict vec1,
@@ -50,6 +187,13 @@ double vector_dot(const int N,
 #ifdef __NVCC__
   if (mfem::rconfig::Get().Cuda()){
     const double result = cub_vector_dot(N,vec1,vec2);
+    pop();
+    return result;
+  }
+#endif
+#ifdef __HIPCC__
+  if (mfem::rconfig::Get().Hip()){
+    const double result = hip_vector_dot(N,vec1,vec2);
     pop();
     return result;
   }

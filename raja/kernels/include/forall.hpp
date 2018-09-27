@@ -86,7 +86,7 @@ const int CUDA_BLOCK_SIZE = 256;
   call[id]<<<grid,blck>>>(__VA_ARGS__)
 #define call0(name,id,grid,blck,...) call[id]<<<grid,blck>>>(__VA_ARGS__)
 #define ReduceDecl(type,var,ini) double var=ini;
-#define ReduceForall(i,max,body) 
+#define ReduceForall(i,max,body)
 
 
 // *****************************************************************************
@@ -116,13 +116,78 @@ void cuda_forallT(const int end,
   //printf("\033[32;1m[cuda_forallT] grid:%d, block:%d\033[m\n",gridSize,blockSize);
   gpu<<<gridSize, blockSize>>>(end,step,body);
 }
-#define forall(i,max,body) cuda_forallT(max,1, [=] __device__ (int i) {body}); 
-#define forallS(i,max,step,body) cuda_forallT(max,step, [=] __device__ (int i) {body}); 
+#define forall(i,max,body) cuda_forallT(max,1, [=] __device__ (int i) {body});
+#define forallS(i,max,step,body) cuda_forallT(max,step, [=] __device__ (int i) {body});
 #define cuKer(name,end,...) name ## 0(end,__VA_ARGS__)
 #define cuKerGBS(name,grid,block,end,...) name ## 0(end,__VA_ARGS__)
 #define call0(name,id,grid,blck,...) call[id](__VA_ARGS__)
 #define ReduceDecl(type,var,ini) double var=ini;
-#define ReduceForall(i,max,body) 
+#define ReduceForall(i,max,body)
+#endif // __LAMBDA__
+
+#elif defined(__HIPCC__)
+#ifndef __LAMBDA__
+#define kernel __global__
+#define share __shared__
+#define sync __syncthreads();
+#define exclusive_inc
+#define exclusive_decl
+#define exclusive_reset
+#define exclusive_set(name,idx) name[idx]
+#define exclusive(type,name,size) type name[size]
+const int CUDA_BLOCK_SIZE = 256;
+#define cuKer(name,end,...) hipLaunchKernelGGL((name ## 0),dim3(((end+256-1)/256)),dim3(256),0,0,end,__VA_ARGS__)
+#define cuLaunchKer(name,args) {                                      \
+    hipModuleLaunchKernel(name ## 0,                                  \
+                   ((end+256-1)/256),1,1,                             \
+                   256,1,1,                                           \
+                   0,0,                                               \
+                   args);                                             \
+      }
+#define cuKerGBS(name,grid,block,end,...) hipLaunchKernelGGL((name ## 0),dim3(grid),dim3(block),0,0,end,__VA_ARGS__)
+#define call0p(name,id,grid,blck,...)                               \
+  printf("\033[32;1m[call0] name=%s grid:%d, block:%d\033[m\n",#name,grid,blck); \
+  hipLaunchKernelGGL((call[id]),grid,blck,0,0,__VA_ARGS__)
+#define call0(name,id,grid,blck,...) hipLaunchKernelGGL((call[id]),grid,blck,0,0,__VA_ARGS__)
+#define ReduceDecl(type,var,ini) double var=ini;
+#define ReduceForall(i,max,body)
+
+// *****************************************************************************
+#else // __KERNELS__ on GPU, LAMBDA launches  **********************************
+#define kernel
+#define sync
+#define share
+#define exclusive_inc
+#define exclusive_decl
+#define exclusive_reset
+#define exclusive_set(name,idx) name[idx]
+#define exclusive(type,name,size) type name[size]
+const int CUDA_BLOCK_SIZE = 256;
+
+template <typename FORALL_BODY>
+__global__ void gpu(const int length,
+                    const int step,
+                    FORALL_BODY body) {
+  const int idx = blockDim.x*blockIdx.x + threadIdx.x;
+  const int ids = idx * step;
+  if (ids < length) {body(idx);}
+}
+template <typename FORALL_BODY>
+void cuda_forallT(const int end,
+                  const int step,
+                  FORALL_BODY &&body) {
+  const size_t blockSize = 256;
+  const size_t gridSize = (end+blockSize-1)/blockSize;
+  //printf("\033[32;1m[cuda_forallT] grid:%d, block:%d\033[m\n",gridSize,blockSize);
+  hipLaunchKernelGGL((gpu<FORALL_BODY>),gridSize, blockSize,0,0,end,step,body);
+}
+#define forall(i,max,body) cuda_forallT(max,1, [=] __device__ (int i) {body});
+#define forallS(i,max,step,body) cuda_forallT(max,step, [=] __device__ (int i) {body});
+#define cuKer(name,end,...) name ## 0(end,__VA_ARGS__)
+#define cuKerGBS(name,grid,block,end,...) name ## 0(end,__VA_ARGS__)
+#define call0(name,id,grid,blck,...) call[id](__VA_ARGS__)
+#define ReduceDecl(type,var,ini) double var=ini;
+#define ReduceForall(i,max,body)
 #endif // __LAMBDA__
 
 

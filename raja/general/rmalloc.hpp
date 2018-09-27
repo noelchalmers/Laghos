@@ -24,7 +24,7 @@ namespace mfem {
     // *************************************************************************
     inline void* operator new(size_t n, bool lock_page = false) {
       dbg("+]\033[m");
-      if (!rconfig::Get().Cuda()) return ::new T[n];
+      if (!rconfig::Get().Cuda() && !rconfig::Get().Hip()) return ::new T[n];
 #ifdef __NVCC__
       void *ptr;
       push(new,Purple);
@@ -36,6 +36,13 @@ namespace mfem {
       }
       pop();
       return ptr;
+#elif defined(__HIPCC__)
+      void *ptr;
+      push(new,Purple);
+      if (lock_page) hipHostMalloc(&ptr, n*sizeof(T));
+      else hipMalloc((hipDeviceptr_t*)&ptr, n*sizeof(T));
+      pop();
+      return ptr;
 #else
       // We come here when the user requests a manager,
       // but has compiled the code without NVCC
@@ -43,11 +50,11 @@ namespace mfem {
       return ::new T[n];
 #endif // __NVCC__
     }
-  
+
     // ***************************************************************************
     inline void operator delete(void *ptr) {
       dbg("-]\033[m");
-      if (!rconfig::Get().Cuda()) {
+      if (!rconfig::Get().Cuda() && !rconfig::Get().Hip()) {
         if (ptr)
           ::delete[] static_cast<T*>(ptr);
       }
@@ -58,6 +65,13 @@ namespace mfem {
         pop();
       }
 #endif // __NVCC__
+#ifdef __HIPCC__
+      else {
+        push(delete,Fuchsia);
+        hipFree((hipDeviceptr_t)ptr); // or cuMemFreeHost if page_locked was used
+        pop();
+      }
+#endif // __HIPCC__
       ptr = nullptr;
     }
   };
