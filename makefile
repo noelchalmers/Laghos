@@ -17,11 +17,14 @@
 #########
 # SETUP #
 #########
-CUB_DIR  ?= ./cub
+
+LAGHOS_DIR ?= $(pwd)
+
+CUB_DIR  ?= $(LAGHOS_DIR)/cub
 CUDA_DIR ?= /usr/local/cuda
 ROCM_DIR ?= /opt/rocm/
-MFEM_DIR ?= $(HOME)/laghos/laghos/mfem/
-RAJA_DIR ?= $(HOME)/laghos/laghos/RAJA/
+MFEM_DIR ?= $(LAGHOS_DIR)/../mfem/
+RAJA_DIR ?= $(LAGHOS_DIR)/../RAJA/
 MPI_HOME ?= /usr/lib/openmpi/
 
 NV_ARCH ?= -arch=sm_60 #-gencode arch=compute_52,code=sm_52 -gencode arch=compute_60,code=sm_60
@@ -131,11 +134,9 @@ CXXFLAGS += $(CXXEXTRA)
 # RAJA compilation: make rj=1 #
 ###############################
 ifneq (,$(rj))
-	CXX = nvcc
-	CXXFLAGS += -D__RAJA__ -DUSE_CUDA
-	CXXFLAGS += -D__LAMBDA__ --expt-extended-lambda
-	CXXFLAGS += --restrict -Xcompiler -fopenmp
-	CXXFLAGS += -x=cu $(NV_ARCH)
+	CXXFLAGS += -D__RAJA__
+	CXXFLAGS += -fopenmp
+	RAJA_BUILD_DIR ?= $(RAJA_DIR)/build_ubuntu_hipcc_clang-coral-2018.04.28
 endif
 
 ############################
@@ -160,7 +161,7 @@ ifneq (,$(hp))
 	CXX = $(ROCM_DIR)/bin/hipcc
 	HIPFLAGS = -O3 #-rdc=true
 #	CXXFLAGS += -Xptxas=-v # -maxrregcount=32
-	CXXFLAGS += -O3 -g
+	CXXFLAGS += -O3
 	CXXFLAGS += $(shell $(ROCM_DIR)/bin/hipconfig --cpp_config)
 #	CXXFLAGS += -lineinfo
 #	CXXFLAGS += -default-stream per-thread
@@ -192,7 +193,7 @@ endif
 #
 # RAJA: make v=1 rj=1 t=1
 ##################################################
-.PHONY: cpuL cpuLT rj raja cpuRJ cuda hip nvl gpuLT nvk gpuKT
+.PHONY: cpuL cpuLT rj raja raja_cuda raja_hip cpuRJ cuda hip nvl gpuLT nvk gpuKT
 cpuL:;$(MAKE) l=1 all
 cpuLT:;$(MAKE) l=1 t=1 all
 
@@ -200,6 +201,9 @@ cpuLT:;$(MAKE) l=1 t=1 all
 # RAJA targets #
 ################
 rj raja cpuRJ:;$(MAKE) rj=1 t=1 all
+
+raja_cuda:;$(MAKE) rj=1 nv=1 t=1 all
+raja_hip:;$(MAKE) rj=1 hp=1 l=1 t=1 all
 
 ################
 # CUDA targets #
@@ -255,8 +259,8 @@ HIP_LIBS = $(shell $(ROCM_DIR)/bin/hipconfig --cpp_config) -L/opt/rocm/hip/lib/ 
 # RAJA ENV #
 ############
 ifneq (,$(rj))
-RAJA_INC = -I$(RAJA_DIR)/include
-RAJA_LIBS = $(RAJA_DIR)/lib/libRAJA.a
+RAJA_INC = -I$(RAJA_DIR)/include -I$(RAJA_BUILD_DIR)/include
+RAJA_LIBS = -L$(RAJA_BUILD_DIR)/lib/ -lRAJA
 endif
 
 ###########
