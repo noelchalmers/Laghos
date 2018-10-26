@@ -245,10 +245,11 @@ MPI_INC = -I$(MPI_HOME)/include
 ############
 # CUDA ENV #
 ############
+ifneq (,$(nv))
 CUDA_INC = -I$(CUDA_DIR)/samples/common/inc
 CUDA_LIBS = -Wl,-rpath -Wl,$(CUDA_DIR)/lib64 -L$(CUDA_DIR)/lib64 \
 				-lcuda -lcudart -lcudadevrt -lnvToolsExt
-
+endif
 ############
 # HIP ENV #
 ############
