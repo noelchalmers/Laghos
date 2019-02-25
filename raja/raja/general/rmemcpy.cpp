@@ -13,6 +13,9 @@
 // the planning and preparation of a capable exascale ecosystem, including
 // software, applications, hardware, advanced system engineering and early
 // testbed platforms, in support of the nation's exascale computing imperative.
+/////////////////////////////////////////////////////////////////////////////////
+// Copyright (c) 2018,2019 Advanced Micro Devices, Inc.
+/////////////////////////////////////////////////////////////////////////////////
 #include "../raja.hpp"
 
 namespace mfem
@@ -34,12 +37,18 @@ void* rmemcpy::rHtoD(void *dest, const void *src, std::size_t bytes,
 {
    if (bytes==0) { return dest; }
    assert(src); assert(dest);
+#if defined(RAJA_ENABLE_CUDA)
    if (!rconfig::Get().Cuda()) { return std::memcpy(dest,src,bytes); }
    if (!rconfig::Get().Uvm())
    {
       cuMemcpyHtoD((CUdeviceptr)dest,src,bytes);
    }
    else { cuMemcpy((CUdeviceptr)dest,(CUdeviceptr)src,bytes); }
+#elif defined(RAJA_ENABLE_HIP)
+   if (!rconfig::Get().Hip()) { return std::memcpy(dest,src,bytes); }
+
+   hipMemcpy(dest,src,bytes,hipMemcpyHostToDevice);
+#endif
    return dest;
 }
 
@@ -49,12 +58,18 @@ void* rmemcpy::rDtoH(void *dest, const void *src, std::size_t bytes,
 {
    if (bytes==0) { return dest; }
    assert(src); assert(dest);
+#if defined(RAJA_ENABLE_CUDA)
    if (!rconfig::Get().Cuda()) { return std::memcpy(dest,src,bytes); }
    if (!rconfig::Get().Uvm())
    {
       cuMemcpyDtoH(dest,(CUdeviceptr)src,bytes);
    }
    else { cuMemcpy((CUdeviceptr)dest,(CUdeviceptr)src,bytes); }
+#elif defined(RAJA_ENABLE_HIP)
+   if (!rconfig::Get().Hip()) { return std::memcpy(dest,src,bytes); }
+
+   hipMemcpy(dest,src,bytes,hipMemcpyDeviceToHost);
+#endif
    return dest;
 }
 
@@ -64,6 +79,7 @@ void* rmemcpy::rDtoD(void *dest, const void *src, std::size_t bytes,
 {
    if (bytes==0) { return dest; }
    assert(src); assert(dest);
+#if defined(RAJA_ENABLE_CUDA)
    if (!rconfig::Get().Cuda()) { return std::memcpy(dest,src,bytes); }
    if (!rconfig::Get().Uvm())
    {
@@ -78,6 +94,19 @@ void* rmemcpy::rDtoD(void *dest, const void *src, std::size_t bytes,
       }
    }
    else { cuMemcpy((CUdeviceptr)dest,(CUdeviceptr)src,bytes); }
+#elif defined(RAJA_ENABLE_HIP)
+   if (!rconfig::Get().Hip()) { return std::memcpy(dest,src,bytes); }
+
+   if (!async)
+   {
+      hipMemcpy(dest,src,bytes,hipMemcpyDeviceToDevice);
+   }
+   else
+   {
+      const hipStream_t s = *rconfig::Get().Stream();
+      hipMemcpyAsync(dest,src,bytes,hipMemcpyDeviceToDevice,s);
+   }
+#endif
    return dest;
 }
 

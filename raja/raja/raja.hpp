@@ -13,6 +13,9 @@
 // the planning and preparation of a capable exascale ecosystem, including
 // software, applications, hardware, advanced system engineering and early
 // testbed platforms, in support of the nation's exascale computing imperative.
+/////////////////////////////////////////////////////////////////////////////////
+// Copyright (c) 2018,2019 Advanced Micro Devices, Inc.
+/////////////////////////////////////////////////////////////////////////////////
 #ifndef LAGHOS_RAJA
 #define LAGHOS_RAJA
 
@@ -22,7 +25,7 @@
 #include <assert.h>
 
 // *****************************************************************************
-#include <cuda.h>
+#include "RAJA/RAJA.hpp"
 
 // MFEM/fem  *******************************************************************
 #include "fem/gridfunc.hpp"

@@ -14,6 +14,10 @@
 # software, applications, hardware, advanced system engineering and early
 # testbed platforms, in support of the nation's exascale computing imperative.
 
+###############################################################################
+## Copyright (c) 2018,2019 Advanced Micro Devices, Inc.
+###############################################################################
+
 define LAGHOS_HELP_MSG
 
 Laghos makefile targets:
@@ -53,7 +57,7 @@ PREFIX = ./bin
 INSTALL = /usr/bin/install
 
 # Use the MFEM build directory
-MFEM_DIR = ../../mfem
+MFEM_DIR = ./mfem
 CONFIG_MK = $(MFEM_DIR)/config/config.mk
 TEST_MK = $(MFEM_DIR)/config/test.mk
 # Use the MFEM install directory
@@ -151,7 +155,7 @@ test: laghos
 $(CONFIG_MK) $(MFEM_LIB_FILE):
 	$(error The MFEM library is not built)
 
-clean: clean-build clean-exec clear-kernels
+clean: clean-build clean-exec
 
 clean-build:
 	rm -rf laghos *.o *~ *.dSYM Laghos_*

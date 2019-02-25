@@ -13,6 +13,9 @@
 // the planning and preparation of a capable exascale ecosystem, including
 // software, applications, hardware, advanced system engineering and early
 // testbed platforms, in support of the nation's exascale computing imperative.
+/////////////////////////////////////////////////////////////////////////////////
+// Copyright (c) 2018,2019 Advanced Micro Devices, Inc.
+/////////////////////////////////////////////////////////////////////////////////
 #include "../raja.hpp"
 
 // *****************************************************************************
@@ -228,9 +231,9 @@ void rIniGeom(const int DIM,
    assert(LOG2(dofs1D-2)<=4);
    if (quad1D!=2*(dofs1D-1))
    {
-      return exit(
-                printf("\033[31;1m[rIniGeom] order ERROR: -ok=p -ot=p-1, p in [1,16] (%d,%d)\033[m\n",
-                       quad1D,dofs1D));
+      printf("\033[31;1m[rIniGeom] order ERROR: -ok=p -ot=p-1, p in [1,16] (%d,%d)\033[m\n",
+                       quad1D,dofs1D);
+      return exit(1);
    }
    assert(quad1D==2*(dofs1D-1));
    static std::unordered_map<unsigned int, fIniGeom> call =

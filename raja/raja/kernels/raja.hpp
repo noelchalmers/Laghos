@@ -13,6 +13,9 @@
 // the planning and preparation of a capable exascale ecosystem, including
 // software, applications, hardware, advanced system engineering and early
 // testbed platforms, in support of the nation's exascale computing imperative.
+/////////////////////////////////////////////////////////////////////////////////
+// Copyright (c) 2018,2019 Advanced Micro Devices, Inc.
+/////////////////////////////////////////////////////////////////////////////////
 #ifndef LAGHOS_RAJA_KERNELS_RAJA
 #define LAGHOS_RAJA_KERNELS_RAJA
 
@@ -32,7 +35,6 @@
 #define IROOT(D,N) ((D==1)?N:(D==2)?ISQRT(N):(D==3)?ICBRT(N):0)
 
 // *****************************************************************************
-#include <cuda.h>
 #include "RAJA/RAJA.hpp"
 
 // *****************************************************************************

@@ -13,6 +13,9 @@
 // the planning and preparation of a capable exascale ecosystem, including
 // software, applications, hardware, advanced system engineering and early
 // testbed platforms, in support of the nation's exascale computing imperative.
+/////////////////////////////////////////////////////////////////////////////////
+// Copyright (c) 2018,2019 Advanced Micro Devices, Inc.
+/////////////////////////////////////////////////////////////////////////////////
 #include "../raja.hpp"
 
 // *****************************************************************************
@@ -264,8 +267,8 @@ void rGridFuncToQuad(const int DIM,
    assert(NUM_QUAD_1D==2*NUM_DOFS_1D);
    if (NUM_QUAD_1D!=2*NUM_DOFS_1D)
    {
-      return exit(
-                printf("\033[31;1m[rGridFuncToQuad] order ERROR: -ok=p -ot=p-1, p in [1,16]\033[m\n"));
+      printf("\033[31;1m[rGridFuncToQuad] order ERROR: -ok=p -ot=p-1, p in [1,16]\033[m\n");
+      return exit(1);
    }
    static std::unordered_map<unsigned int, fGridFuncToQuad> call =
    {

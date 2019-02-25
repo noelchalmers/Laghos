@@ -14,20 +14,36 @@
 # software, applications, hardware, advanced system engineering and early
 # testbed platforms, in support of the nation's exascale computing imperative.
 
-RAJA_DIR ?= /usr/local/raja
+###############################################################################
+## Copyright (c) 2018,2019 Advanced Micro Devices, Inc.
+###############################################################################
+
+enableCuda= 0
+enableHip = 1
+
+RAJA_DIR ?= ${PWD}/RAJA
 RAJA_INCFLAGS = -I$(RAJA_DIR)/include
 RAJA_LIBS = -fopenmp $(RAJA_DIR)/lib/libRAJA.a
-RAJA_CXXFLAGS = --expt-extended-lambda -Xcompiler -fopenmp
+RAJA_CXXFLAGS =
 
 NV_ARCH ?= -arch=sm_61
 CUDA_DIR ?= /usr/local/cuda
 
+HIP_ARCH ?= -t=gfx900
+ROCM_DIR ?= /opt/rocm
+HIP_DIR  ?= $(ROCM_DIR)/hip
+
 MPI_HOME ?= /usr/local/mpi
 MPI_INCFLAGS = -I$(MPI_HOME)/include
+MPI_LIBS := $(shell mpicxx --showme:link)
 
-NVCC_CXXFLAGS = -x=cu -std=c++11 -m64 --restrict -Xcompiler -Wall $(NV_ARCH)
+
+NVCC_CXXFLAGS = --expt-extended-lambda -Xcompiler -fopenmp -x=cu -std=c++11 -m64 --restrict -Xcompiler -Wall $(NV_ARCH)
 NVCC_LIBS = -Wl,-rpath -Wl,$(CUDA_DIR)/lib64 -L$(CUDA_DIR)/lib64 \
             -lcuda -lcudart -lcudadevrt -lnvToolsExt
+
+HIPCC_CXXFLAGS = -fopenmp -std=c++11 -Wall -I$(HIP_DIR) $(shell $(HIP_DIR)/bin/hipconfig --cpp_config)
+HIPCC_LIBS =  -L$(HIP_DIR)/lib/ -lhip_hcc $(MPI_INCFLAGS) $(MPI_LIBS)
 
 define LAGHOS_HELP_MSG
 
@@ -87,13 +103,20 @@ ifeq (,$(filter help clean distclean style,$(MAKECMDGOALS)))
    -include $(CONFIG_MK)
 endif
 
+ifeq (1,$(enableCuda))
 CXX = nvcc
+else ifeq (1,$(enableHip))
+CXX = ${ROCM_DIR}/bin/hipcc
+endif
+
 CPPFLAGS = $(MFEM_CPPFLAGS)
 CXXFLAGS = $(MFEM_CXXFLAGS)
 
 # MFEM config does not define C compiler
 CC     = gcc
 CFLAGS = -O3
+
+
 
 # Optional link flags
 LDFLAGS =
@@ -110,9 +133,19 @@ ifneq ($(LAGHOS_DEBUG),$(MFEM_DEBUG))
 endif
 
 LAGHOS_FLAGS = $(CPPFLAGS) $(CXXFLAGS) $(MFEM_INCFLAGS) \
- $(MPI_INCFLAGS) $(RAJA_INCFLAGS) $(RAJA_CXXFLAGS) \
-                 $(NVCC_CXXFLAGS) $(NVCC_INCFLAGS)
-LAGHOS_LIBS = $(MFEM_LIBS) $(RAJA_LIBS) $(NVCC_LIBS)
+ $(MPI_INCFLAGS) $(RAJA_INCFLAGS) $(RAJA_CXXFLAGS)
+LAGHOS_LIBS = $(MFEM_LIBS) $(RAJA_LIBS)
+
+ifeq (1,$(enableCuda))
+LD = $(MFEM_CXX)
+LAGHOS_FLAGS += $(NVCC_CXXFLAGS) $(NVCC_INCFLAGS)
+LAGHOS_LIBS += $(NVCC_LIBS)
+else ifeq (1,$(enableHip))
+LD = ${ROCM_DIR}/bin/hipcc
+LAGHOS_FLAGS += $(HIPCC_CXXFLAGS) $(HIPCC_INCFLAGS)
+LAGHOS_LIBS += $(HIPCC_LIBS)
+endif
+
 
 ifeq ($(LAGHOS_DEBUG),YES)
    LAGHOS_FLAGS += -DLAGHOS_DEBUG
@@ -203,7 +236,7 @@ HEADER_FILES = ./raja/raja.hpp \
 
 laghos: override MFEM_DIR = $(MFEM_DIR1)
 laghos:	$(OBJECT_FILES) $(CONFIG_MK) $(MFEM_LIB_FILE)
-	$(MFEM_CXX) -o laghos $(OBJECT_FILES) $(LIBS)
+	 $(LD) -o laghos $(OBJECT_FILES) $(LIBS)
 
 all: laghos
 

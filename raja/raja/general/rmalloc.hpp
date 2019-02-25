@@ -13,6 +13,9 @@
 // the planning and preparation of a capable exascale ecosystem, including
 // software, applications, hardware, advanced system engineering and early
 // testbed platforms, in support of the nation's exascale computing imperative.
+/////////////////////////////////////////////////////////////////////////////////
+// Copyright (c) 2018,2019 Advanced Micro Devices, Inc.
+/////////////////////////////////////////////////////////////////////////////////
 #ifndef LAGHOS_RAJA_MALLOC
 #define LAGHOS_RAJA_MALLOC
 
@@ -26,6 +29,7 @@ template<class T> struct rmalloc: public rmemcpy
    // *************************************************************************
    inline void* operator new (size_t n, bool lock_page = false)
    {
+#if defined(RAJA_ENABLE_CUDA)
       if (!rconfig::Get().Cuda()) { return ::new T[n]; }
       void *ptr;
       if (!rconfig::Get().Uvm())
@@ -37,12 +41,20 @@ template<class T> struct rmalloc: public rmemcpy
       {
          cuMemAllocManaged((CUdeviceptr*)&ptr, n*sizeof(T),CU_MEM_ATTACH_GLOBAL);
       }
+#elif defined(RAJA_ENABLE_HIP)
+      if (!rconfig::Get().Hip()) { return ::new T[n]; }
+      void *ptr;
+
+      if (lock_page) { hipHostMalloc(&ptr, n*sizeof(T), hipHostMallocMapped); }
+      else { hipMalloc((void**)&ptr, n*sizeof(T)); }
+#endif
       return ptr;
    }
 
    // ***************************************************************************
    inline void operator delete (void *ptr)
    {
+#if defined(RAJA_ENABLE_CUDA)
       if (!rconfig::Get().Cuda())
       {
          if (ptr)
@@ -54,6 +66,19 @@ template<class T> struct rmalloc: public rmemcpy
       {
          cuMemFree((CUdeviceptr)ptr); // or cuMemFreeHost if page_locked was used
       }
+#elif defined(RAJA_ENABLE_HIP)
+      if (!rconfig::Get().Hip())
+      {
+         if (ptr)
+         {
+            ::delete[] static_cast<T*>(ptr);
+         }
+      }
+      else
+      {
+         hipFree(ptr); // or hipHostFree if page_locked was used
+      }
+#endif
       ptr = nullptr;
    }
 };
